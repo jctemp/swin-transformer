@@ -3,3 +3,4 @@
 .venv
 .bak
 .vscode
+**/__pycache__

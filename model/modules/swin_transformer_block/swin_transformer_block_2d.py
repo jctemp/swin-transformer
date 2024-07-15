@@ -20,7 +20,6 @@ class SwinTransformerBlock2D(SwinTransformerBlock):
         mlp_ratio: float = 2.0,
         drop: float = 0.1,
         drop_attn: float = 0.1,
-        drop_proj: float = 0.1,
         drop_path: float = 0.1,
         rpe: bool = True,
         shift: bool = False,
@@ -36,7 +35,7 @@ class SwinTransformerBlock2D(SwinTransformerBlock):
             window_size=window_size,
             qkv_bias=qkv_bias,
             drop_attn=drop_attn,
-            drop_proj=drop_proj,
+            drop_proj=drop,
             rpe=rpe,
         )
 

@@ -43,6 +43,7 @@ class TestPatchEmbedding:
         
         expected_shape = [batch_size, embed_params['out_channels']] + [224 // 4] * dims
         assert list(output.shape) == expected_shape
+        assert not torch.any(torch.isnan(output))
 
     @pytest.mark.parametrize("ape", [True, False])
     def test_positional_encoding(self, PatchEmbedding, dims, embed_params, ape):
@@ -57,6 +58,7 @@ class TestPatchEmbedding:
             x = torch.randn(batch_size, embed_params['in_channels'], 224, 224, 224)
         
         output = embed(x)
+        assert not torch.any(torch.isnan(output))
         
         if ape:
             assert embed.pe is not None
@@ -75,6 +77,7 @@ class TestPatchEmbedding:
             x = torch.randn(batch_size, embed_params['in_channels'], 224, 224, 224)
         
         output = embed(x)
+        assert not torch.any(torch.isnan(output))
         
         # Check if output is normalized
         assert torch.allclose(output.mean(), torch.tensor(0.0), atol=1e-6)
@@ -100,3 +103,4 @@ class TestPatchEmbedding:
         assert str(embed_params['out_channels']) in repr_str
         assert str(embed_params['patch_size']) in repr_str
         assert str(embed_params['ape']) in repr_str
+        

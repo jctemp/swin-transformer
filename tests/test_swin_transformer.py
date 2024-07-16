@@ -39,6 +39,7 @@ class TestSwinTransformer2D:
         ]
         
         assert len(outputs) == len(expected_shapes), f"Number of outputs doesn't match expected, {len(outputs)} != {len(expected_shapes)}"
+        assert not torch.any(torch.isnan(outputs[-1]))
         
         for output, expected_shape in zip(outputs, expected_shapes):
             assert output.shape == expected_shape, f"Output shape {output.shape} doesn't match expected {expected_shape}"

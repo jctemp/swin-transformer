@@ -24,7 +24,6 @@ class TestSwinTransformerBlock:
             "qkv_bias": True,
             "drop": 0.1,
             "drop_attn": 0.1,
-            "drop_proj": 0.1,
             "drop_path": 0.1,
             "rpe": True,
             "shift": False,
@@ -49,6 +48,7 @@ class TestSwinTransformerBlock:
             x = torch.randn(batch_size, block_params["in_channels"], 56, 56, 56)
 
         output = block(x)
+        assert not torch.any(torch.isnan(output))
 
         # Check output shape
         assert output.shape == x.shape
@@ -66,7 +66,8 @@ class TestSwinTransformerBlock:
         else:
             x = torch.randn(batch_size, block_params["in_channels"], 56, 56, 56)
 
-        _ = block(x)
+        output = block(x)
+        assert not torch.any(torch.isnan(output))
 
         # Check that attention map is stored
         assert block.attn_map is not None
@@ -85,6 +86,8 @@ class TestSwinTransformerBlock:
         
         output1 = block1(x)
         output2 = block2(x)
+        assert not torch.any(torch.isnan(output1))
+        assert not torch.any(torch.isnan(output2))
 
         assert not torch.allclose(output1, output2)
 

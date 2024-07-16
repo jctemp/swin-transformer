@@ -43,6 +43,8 @@ class TestWindowMultiHeadAttention:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
 
         output, context = attn(x, x, x)
+        assert not torch.any(torch.isnan(output))
+        assert not torch.any(torch.isnan(context))
 
         # Check output shape
         assert output.shape == x.shape
@@ -71,6 +73,8 @@ class TestWindowMultiHeadAttention:
             mask[:, :171, :171] = 0  # mask out roughly half
 
         output, context = attn(x, x, x, mask)
+        assert not torch.any(torch.isnan(output))
+        assert not torch.any(torch.isnan(context))
 
         # Check that masked areas have zero attention
         masked_area = 24 if dims == 2 else 171
@@ -88,11 +92,15 @@ class TestWindowMultiHeadAttention:
         else:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
 
-        output_rpe, _ = attn(x, x, x)
+        output_rpe, context = attn(x, x, x)
+        assert not torch.any(torch.isnan(output_rpe))
+        assert not torch.any(torch.isnan(context))
 
         attention_params["rpe"] = not rpe
         attn_no_rpe = Attention(**attention_params)
-        output_no_rpe, _ = attn_no_rpe(x, x, x)
+        output_no_rpe, context = attn_no_rpe(x, x, x)
+        assert not torch.any(torch.isnan(output_no_rpe))
+        assert not torch.any(torch.isnan(context))
 
         # Outputs should be different when rpe is changed
         assert not torch.allclose(output_rpe, output_no_rpe)
@@ -108,7 +116,9 @@ class TestWindowMultiHeadAttention:
         else:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
 
-        _, context = attn(x, x, x)
+        output, context = attn(x, x, x)
+        assert not torch.any(torch.isnan(output))
+        assert not torch.any(torch.isnan(context))
 
         # Check that attention values sum to 1 for each query, allowing for small numerical errors
         assert torch.allclose(context.sum(dim=-1), torch.ones_like(context.sum(dim=-1)), atol=1e-6, rtol=1e-5)

@@ -36,6 +36,7 @@ class TestPatchMerging:
             x = torch.randn(batch_size, merge_params['in_channels'], 56, 56, 56)
         
         output = merge(x)
+        assert not torch.any(torch.isnan(output))
         
         expected_shape = [batch_size, merge_params['out_channels']] + [56 // 2] * dims
         assert list(output.shape) == expected_shape
@@ -51,6 +52,7 @@ class TestPatchMerging:
             x = torch.randn(batch_size, merge_params['in_channels'], 56, 56, 56)
         
         output = merge(x)
+        assert not torch.any(torch.isnan(output))
         
         # Check if output is normalized
         assert torch.allclose(output.mean(), torch.tensor(0.0), atol=1e-6)

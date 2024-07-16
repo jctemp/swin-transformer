@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from einops import einsum, rearrange, repeat
 
-
 class WindowMultiHeadAttention(ABC, nn.Module):
 
     def __init__(
@@ -111,21 +110,16 @@ class WindowMultiHeadAttention(ABC, nn.Module):
                 ):
                     batch_diff = score.shape[0] // mask.shape[0]
                     mask = repeat(mask, "b h nw1 nw2 -> (b d) h nw1 nw2", d=batch_diff)
-                expected_shape = score.shape
-            elif mask_dims + 1 == score_dims:
-                expected_shape = score.shape[1:]
             else:
-                expected_shape = score.shape[2:]
-
-            if mask.shape != expected_shape:
                 raise ValueError(
-                    f"Mask shape {mask.shape} doesn't match expected shape {expected_shape}"
+                    f"len(score.shape) ({len(score.shape)}) != len(mask.shape) ({len(mask.shape)})"
                 )
 
-            score = score.masked_fill(mask == 0, float("-inf"))
+            score = score + mask
 
         # Compute attention weights
         context = self.softmax(score)
+        assert not torch.any(torch.isnan(context)), context
         context = self.drop_attn(context)
 
         # Attend values

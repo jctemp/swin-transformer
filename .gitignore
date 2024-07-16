@@ -3,4 +3,7 @@
 .venv
 .bak
 .vscode
+.data
 **/__pycache__
+checkpoints
+wandb

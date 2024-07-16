@@ -1,3 +1,4 @@
+from einops import rearrange, repeat
 import pytest
 import torch
 from model.modules import (
@@ -27,6 +28,7 @@ class TestSwinTransformerBlock:
             "drop_path": 0.1,
             "rpe": True,
             "shift": False,
+            "attn_mask": None,
         }
 
     def test_initialization(self, Block, dims, block_params):
@@ -74,16 +76,16 @@ class TestSwinTransformerBlock:
 
     @pytest.mark.parametrize("shift", [True, False])
     def test_shifting(self, Block, dims, block_params, shift):
-        block_params['shift'] = shift
+        block_params["shift"] = shift
         block1 = Block(**block_params)
         block2 = Block(**block_params)
-        
+
         batch_size = 2
         if dims == 2:
-            x = torch.randn(batch_size, block_params['in_channels'], 56, 56)
+            x = torch.randn(batch_size, block_params["in_channels"], 56, 56)
         else:
-            x = torch.randn(batch_size, block_params['in_channels'], 56, 56, 56)
-        
+            x = torch.randn(batch_size, block_params["in_channels"], 56, 56, 56)
+
         output1 = block1(x)
         output2 = block2(x)
         assert not torch.any(torch.isnan(output1))
@@ -92,7 +94,7 @@ class TestSwinTransformerBlock:
         assert not torch.allclose(output1, output2)
 
     def test_attn_mask(self, Block, dims, block_params):
-        block_params['shift'] = True
+        block_params["shift"] = True
         block = Block(**block_params)
 
         # Check that attn_mask is created when shift is True

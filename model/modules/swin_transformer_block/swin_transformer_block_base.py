@@ -1,11 +1,34 @@
 from __future__ import annotations
 from abc import abstractmethod
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Type
 
 import torch
 import torch.nn as nn
 from timm.layers import DropPath
 
+
+class MLP(nn.Module):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        out_features: int,
+        drop: float = 0.0,
+        act_layer: Type[nn.Module] = nn.GELU,
+    ) -> None:
+        super().__init__()
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
 
 class SwinTransformerBlock(nn.Module):
     def __init__(
@@ -16,18 +39,15 @@ class SwinTransformerBlock(nn.Module):
         drop: float = 0.1,
         drop_path: float = 0.1,
         shift: bool = False,
+        norm_layer: Type[nn.Module] = nn.LayerNorm,
+        act_layer: Type[nn.Module] = nn.GELU,
     ) -> None:
         super().__init__()
 
-        self.norm_attn = nn.LayerNorm(in_channels)
+        self.norm_attn = norm_layer(in_channels)
         mlp_features = int(in_channels * mlp_ratio)
-        self.mlp = nn.Sequential(
-            nn.Linear(in_channels, mlp_features),
-            nn.ReLU(inplace=True),
-            nn.Linear(mlp_features, in_channels),
-            nn.Dropout(drop),
-        )
-        self.norm_mlp = nn.LayerNorm(in_channels)
+        self.mlp = MLP(in_channels, mlp_features, in_channels, drop=drop, act_layer=act_layer)
+        self.norm_mlp = norm_layer(in_channels)
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
 
         self.dims = len(window_size)

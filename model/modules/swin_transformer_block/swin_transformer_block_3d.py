@@ -1,12 +1,14 @@
 from __future__ import annotations
-from typing import List, Tuple
+from typing import List, Optional, Tuple, Type
 
 from einops import rearrange, repeat
 import itertools
 import torch
+import torch.nn as nn
 
 from .swin_transformer_block_base import SwinTransformerBlock
 from ..window_attention import WindowMultiHeadAttention3D
+
 
 class SwinTransformerBlock3D(SwinTransformerBlock):
     def __init__(
@@ -22,12 +24,27 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
         drop_path: float = 0.1,
         rpe: bool = True,
         shift: bool = False,
+        norm_layer: Type[nn.Module] = nn.LayerNorm,
+        act_layer: Type[nn.Module] = nn.GELU,
+        attn_mask: Optional[torch.Tensor] = None,
     ) -> None:
-        super().__init__(in_channels, window_size, mlp_ratio, drop, drop_path, shift)
+        super().__init__(
+            in_channels,
+            window_size,
+            mlp_ratio,
+            drop,
+            drop_path,
+            shift,
+            norm_layer,
+            act_layer,
+        )
         self.register_buffer(
             "attn_mask",
             self.create_attn_mask(input_resolution, num_heads) if shift else None,
         )
+        if shift and attn_mask is not None:
+            addition_map = self.attn_mask != attn_mask
+            self.attn_mask[addition_map] += attn_mask[addition_map]
         self.attn = WindowMultiHeadAttention3D(
             in_channels=in_channels,
             num_heads=num_heads,

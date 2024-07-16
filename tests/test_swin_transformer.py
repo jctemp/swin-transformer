@@ -97,6 +97,13 @@ class TestSwinTransformer2D:
         assert isinstance(outputs, list), "Output should be a list"
         assert all(isinstance(output, torch.Tensor) for output in outputs), "All outputs should be torch.Tensor"
 
+    def test_block_attn_mask(self):
+        self.default_params["window_size"] = [(5, 5)] * 4
+        model = SwinTransformer2D(**self.default_params)
+        x = torch.randn(1, 3, 224, 224)
+        outputs = model(x)
+        
+        assert len(outputs) == 4, "Number of outputs should be 4"
     
 class TestSwinTransformer3D:
     @pytest.fixture(autouse=True)
@@ -204,5 +211,10 @@ class TestSwinTransformer3D:
         assert len(outputs) == 4, "Number of outputs should be 4"
         assert outputs[0].shape[1] == self.default_params["out_channels"][0], "First output channel count is incorrect"
 
-if __name__ == "__main__":
-    pytest.main([__file__])
+    def test_block_attn_mask(self):
+        self.default_params["window_size"] = [(5, 5, 5)] * 4
+        model = SwinTransformer3D(**self.default_params)
+        x = torch.randn(1, 1, 96, 96, 96)
+        outputs = model(x)
+        
+        assert len(outputs) == 4, "Number of outputs should be 4"

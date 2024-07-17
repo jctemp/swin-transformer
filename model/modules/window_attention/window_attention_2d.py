@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 from einops import rearrange, repeat
 
-from . import WindowMultiHeadAttention
+from .window_attention_base import WindowMultiHeadAttention
 
 
 class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
@@ -33,9 +33,7 @@ class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
 
     def init_rpe(self) -> torch.Tensor:
         if len(self.window_size) != 2:
-            raise ValueError(
-                f"window_size must have exactly 2 elements, got {len(self.window_size)}"
-            )
+            raise ValueError(f"window_size must have exactly 2 elements, got {len(self.window_size)}")
 
         # Create the embeddings for each token in a window
         rel_pos_bias_table = nn.Parameter(
@@ -48,21 +46,15 @@ class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
         )
 
         # Compute absolute position (dimensions, ws[0], ws[1])
-        abs_coords = torch.stack(
-            torch.meshgrid([torch.arange(ws) for ws in self.window_size], indexing="ij")
-        )
+        abs_coords = torch.stack(torch.meshgrid([torch.arange(ws) for ws in self.window_size], indexing="ij"))
         abs_coords_flat = rearrange(abs_coords, "c ... -> c (...)")
 
         # Compute relative coordinates
-        rel_coords = rearrange(abs_coords_flat, "c i -> c i 1") - rearrange(
-            abs_coords_flat, "c j -> c 1 j"
-        )
+        rel_coords = rearrange(abs_coords_flat, "c i -> c i 1") - rearrange(abs_coords_flat, "c j -> c 1 j")
         rel_coords = rearrange(rel_coords, "c i j -> i j c")
 
         # Shift coordinates to start from 0
-        rel_coords += (
-            repeat(torch.tensor(self.window_size, dtype=torch.int32), "c -> 1 1 c") - 1
-        )
+        rel_coords += repeat(torch.tensor(self.window_size, dtype=torch.int32), "c -> 1 1 c") - 1
 
         # Scale the width dimension
         rel_coords[..., 1] *= 2 * self.window_size[1] - 1

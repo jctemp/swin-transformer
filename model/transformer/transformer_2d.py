@@ -1,11 +1,11 @@
+from itertools import product
 from typing import List, Tuple, Type
 
-from itertools import product
-from einops import rearrange, repeat
 import torch
 import torch.nn as nn
+from einops import rearrange, repeat
 
-from ..modules import *
+from ..modules import PatchEmbedding2D, PatchMerging2D, SwinTransformerBlock2D
 
 
 class SimpleCrop2D(nn.Module):
@@ -73,16 +73,8 @@ class SwinTransformer2D(nn.Module):
                     in_res[1] // merge_size[i - 1][1],
                 )
             padding = (
-                (
-                    0
-                    if in_res[0] % window_size[i][0] == 0
-                    else window_size[i][0] - (in_res[0] % window_size[i][0])
-                ),
-                (
-                    0
-                    if in_res[1] % window_size[i][1] == 0
-                    else window_size[i][1] - (in_res[1] % window_size[i][1])
-                ),
+                (0 if in_res[0] % window_size[i][0] == 0 else window_size[i][0] - (in_res[0] % window_size[i][0])),
+                (0 if in_res[1] % window_size[i][1] == 0 else window_size[i][1] - (in_res[1] % window_size[i][1])),
             )
             in_res_w_pad = (
                 in_res[0] + padding[0],
@@ -109,20 +101,15 @@ class SwinTransformer2D(nn.Module):
                     p2=window_size[i][1],
                 )
                 block_attn_mask = block_mask.unsqueeze(1) - block_mask.unsqueeze(2)
-                block_attn_mask = repeat(
-                    block_attn_mask, "b nw1 nw2 -> b h nw1 nw2", h=num_heads[i]
+                block_attn_mask = repeat(block_attn_mask, "b nw1 nw2 -> b h nw1 nw2", h=num_heads[i])
+                block_attn_mask = block_attn_mask.masked_fill(block_attn_mask != 0, -float("inf")).masked_fill(
+                    block_attn_mask == 0, float(0.0)
                 )
-                block_attn_mask = block_attn_mask.masked_fill(
-                    block_attn_mask != 0, -float("inf")
-                ).masked_fill(block_attn_mask == 0, float(0.0))
 
             blocks: List[SwinTransformerBlock2D] = []
             for k in range(depth):
-
                 pad = padding_layer((0, padding[0], 0, padding[1]))
-                crop = SimpleCrop2D(
-                    (0, in_res_w_pad[0] - padding[0], 0, in_res_w_pad[1] - padding[1])
-                )
+                crop = SimpleCrop2D((0, in_res_w_pad[0] - padding[0], 0, in_res_w_pad[1] - padding[1]))
                 block = SwinTransformerBlock2D(
                     input_resolution=in_res_w_pad,
                     in_channels=out_channels[i],

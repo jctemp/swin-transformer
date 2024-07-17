@@ -1,10 +1,11 @@
 from __future__ import annotations
+
+import itertools
 from typing import List, Optional, Tuple, Type
 
-from einops import rearrange, repeat
-import itertools
 import torch
 import torch.nn as nn
+from einops import rearrange, repeat
 
 from .swin_transformer_block_base import SwinTransformerBlock
 from ..window_attention import WindowMultiHeadAttention2D
@@ -54,9 +55,7 @@ class SwinTransformerBlock2D(SwinTransformerBlock):
             shift=shift,
         )
 
-    def create_attn_mask(
-        self, input_resolution: Tuple[int, int], num_heads: int
-    ) -> torch.Tensor:
+    def create_attn_mask(self, input_resolution: Tuple[int, int], num_heads: int) -> torch.Tensor:
         H, W = input_resolution
         img_mask = torch.zeros((H, W))
 
@@ -83,8 +82,6 @@ class SwinTransformerBlock2D(SwinTransformerBlock):
 
         attn_mask = attn_mask.unsqueeze(1) - attn_mask.unsqueeze(2)
         attn_mask = repeat(attn_mask, "b nw1 nw2 -> b h nw1 nw2", h=num_heads)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, -float("inf")).masked_fill(
-            attn_mask == 0, float(0.0)
-        )
+        attn_mask = attn_mask.masked_fill(attn_mask != 0, -float("inf")).masked_fill(attn_mask == 0, float(0.0))
 
         return attn_mask

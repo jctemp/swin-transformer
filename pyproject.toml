@@ -1,0 +1,47 @@
+[project]
+name = "master-project"
+dynamic = ["version"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -v -s"
+testpaths = [
+    "tests",
+]
+pythonpath = "."
+
+[tool.ruff]
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint.isort]
+relative-imports-order = "closest-to-furthest"
+
+[tool.ruff.lint]
+select = ["E", "F"]
+ignore = []
+mccabe.max-complexity = 10
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"

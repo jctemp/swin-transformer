@@ -1,5 +1,6 @@
 import pytest
 import torch
+
 from model.modules import (
     SwinTransformerBlock,
     SwinTransformerBlock2D,
@@ -7,11 +8,8 @@ from model.modules import (
 )
 
 
-@pytest.mark.parametrize(
-    "Block, dims", [(SwinTransformerBlock2D, 2), (SwinTransformerBlock3D, 3)]
-)
+@pytest.mark.parametrize("Block, dims", [(SwinTransformerBlock2D, 2), (SwinTransformerBlock3D, 3)])
 class TestSwinTransformerBlock:
-
     @pytest.fixture
     def block_params(self, dims):
         input_resolution = (56, 56) if dims == 2 else (56, 56, 56)

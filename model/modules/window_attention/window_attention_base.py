@@ -1,15 +1,15 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
+
 import math
+from abc import ABC, abstractmethod
 from typing import List, Optional, Tuple
 
 import torch
 import torch.nn as nn
-from einops import einsum, rearrange, repeat
+from einops import einsum, rearrange
 
 
 class WindowMultiHeadAttention(ABC, nn.Module):
-
     def __init__(
         self,
         in_channels: int,
@@ -24,10 +24,7 @@ class WindowMultiHeadAttention(ABC, nn.Module):
         super().__init__()
 
         if in_channels % num_heads != 0:
-            raise ValueError(
-                "embed_dim % num_heads should be zero. It was"
-                f" {in_channels % num_heads}"
-            )
+            raise ValueError("embed_dim % num_heads should be zero. It was" f" {in_channels % num_heads}")
 
         self.out_channels = in_channels
         self.num_heads = num_heads
@@ -81,7 +78,7 @@ class WindowMultiHeadAttention(ABC, nn.Module):
         mask: Optional[torch.Tensor] = None,  # (heads, [D], H, W) | 0: attend, -float("inf"): don't attend
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         _, _, *spatial_dims = query.shape
-        
+
         if self.shift:
             query = self.cycle_shift(query)
             key = self.cycle_shift(key)
@@ -93,9 +90,7 @@ class WindowMultiHeadAttention(ABC, nn.Module):
 
         _, seq_len, _ = query.shape
         if seq_len != self.seq_len:
-            raise ValueError(
-                f"Input sequence length {seq_len} doesn't match window size {self.seq_len}"
-            )
+            raise ValueError(f"Input sequence length {seq_len} doesn't match window size {self.seq_len}")
 
         # Project to local attention dimension
         query = self.proj_query(query)

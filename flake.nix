@@ -36,12 +36,15 @@
             name = "machine-learning";
             targetPkgs = pkgs:
               with pkgs; [
+                autoAddDriverRunpath
+                cudaPackages.cudatoolkit
                 python311
                 python311Packages.pip
                 python311Packages.virtualenv
                 python311Packages.python-lsp-server
-                autoAddDriverRunpath
-                cudaPackages.cudatoolkit
+                
+                ruff # linter
+                uv # package manager
               ];
             runScript = "bash";
           })

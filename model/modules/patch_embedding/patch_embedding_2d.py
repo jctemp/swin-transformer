@@ -1,13 +1,14 @@
 from __future__ import annotations
-import math
-from typing import Tuple, Type, Optional
 
-from einops import einsum, repeat
+import math
+from typing import Optional, Tuple, Type
+
 import torch
 import torch.nn as nn
+from einops import einsum, repeat
+
 
 class PatchEmbedding2D(nn.Module):
-
     def __init__(
         self,
         in_channels: int,
@@ -41,9 +42,7 @@ class PatchEmbedding2D(nn.Module):
         embed_dim, height, width = x.shape[-3:]
 
         if embed_dim % 4 != 0:
-            raise ValueError(
-                f"Embedding dimension must be divisible by 4 for 2D APE, got {embed_dim}"
-            )
+            raise ValueError(f"Embedding dimension must be divisible by 4 for 2D APE, got {embed_dim}")
 
         pe = torch.zeros(embed_dim, height, width, device=x.device)
 
@@ -68,12 +67,8 @@ class PatchEmbedding2D(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         H, W = x.shape[-2:]
 
-        assert (
-            H % self.patch_size[0] == 0
-        ), f"Input height {H} not divisible by merge size {self.patch_size[0]}"
-        assert (
-            W % self.patch_size[1] == 0
-        ), f"Input width {W} not divisible by merge size {self.patch_size[1]}"
+        assert H % self.patch_size[0] == 0, f"Input height {H} not divisible by merge size {self.patch_size[0]}"
+        assert W % self.patch_size[1] == 0, f"Input width {W} not divisible by merge size {self.patch_size[1]}"
 
         x = self.transform(x)
 
@@ -89,4 +84,7 @@ class PatchEmbedding2D(nn.Module):
         return x
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(in_channels={self.in_channels}, embed_dim={self.out_channels}, patch_size={self.patch_size}, ape={self.use_ape})"
+        return (
+            f"{self.__class__.__name__}(in_channels={self.in_channels}, embed_dim={self.out_channels}, "
+            f"patch_size={self.patch_size}, ape={self.use_ape})"
+        )

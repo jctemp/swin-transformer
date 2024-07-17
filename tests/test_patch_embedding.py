@@ -1,14 +1,12 @@
 import pytest
 import torch
 import torch.nn as nn
+
 from model.modules import PatchEmbedding2D, PatchEmbedding3D
 
 
-@pytest.mark.parametrize(
-    "PatchEmbedding, dims", [(PatchEmbedding2D, 2), (PatchEmbedding3D, 3)]
-)
+@pytest.mark.parametrize("PatchEmbedding, dims", [(PatchEmbedding2D, 2), (PatchEmbedding3D, 3)])
 class TestPatchEmbedding:
-
     @pytest.fixture
     def embed_params(self, dims):
         return {

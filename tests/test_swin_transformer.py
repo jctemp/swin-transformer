@@ -1,6 +1,7 @@
 import pytest
 import torch
 import torch.nn as nn
+
 from model import SwinTransformer2D, SwinTransformer3D
 
 
@@ -59,12 +60,8 @@ class TestSwinTransformer2D:
         outputs = model(x)
 
         assert len(outputs) == 4, "Number of outputs should be 4"
-        assert (
-            outputs[-1].shape[2] == input_size[0] // 32
-        ), "Final output height is incorrect"
-        assert (
-            outputs[-1].shape[3] == input_size[1] // 32
-        ), "Final output width is incorrect"
+        assert outputs[-1].shape[2] == input_size[0] // 32, "Final output height is incorrect"
+        assert outputs[-1].shape[3] == input_size[1] // 32, "Final output width is incorrect"
 
     def test_no_patch_norm(self):
         model_params = self.default_params.copy()
@@ -97,9 +94,7 @@ class TestSwinTransformer2D:
             pytest.fail(f"Forward pass failed with exception: {e}")
 
         assert isinstance(outputs, list), "Output should be a list"
-        assert all(
-            isinstance(output, torch.Tensor) for output in outputs
-        ), "All outputs should be torch.Tensor"
+        assert all(isinstance(output, torch.Tensor) for output in outputs), "All outputs should be torch.Tensor"
 
     def test_block_attn_mask(self):
         self.default_params["window_size"] = [(5, 5)] * 4
@@ -154,9 +149,7 @@ class TestSwinTransformer3D:
                 output.shape == expected_shape
             ), f"Output shape {output.shape} doesn't match expected {expected_shape}"
 
-    @pytest.mark.parametrize(
-        "input_size", [(96, 96, 96), (128, 128, 128), (64, 64, 64)]
-    )
+    @pytest.mark.parametrize("input_size", [(96, 96, 96), (128, 128, 128), (64, 64, 64)])
     def test_different_input_sizes(self, input_size):
         model_params = self.default_params.copy()
         model_params["input_resolution"] = input_size
@@ -166,15 +159,9 @@ class TestSwinTransformer3D:
         outputs = model(x)
 
         assert len(outputs) == 4, "Number of outputs should be 4"
-        assert (
-            outputs[-1].shape[2] == input_size[0] // 16
-        ), "Final output depth is incorrect"
-        assert (
-            outputs[-1].shape[3] == input_size[1] // 16
-        ), "Final output height is incorrect"
-        assert (
-            outputs[-1].shape[4] == input_size[2] // 16
-        ), "Final output width is incorrect"
+        assert outputs[-1].shape[2] == input_size[0] // 16, "Final output depth is incorrect"
+        assert outputs[-1].shape[3] == input_size[1] // 16, "Final output height is incorrect"
+        assert outputs[-1].shape[4] == input_size[2] // 16, "Final output width is incorrect"
 
     def test_no_patch_norm(self):
         model_params = self.default_params.copy()
@@ -207,9 +194,7 @@ class TestSwinTransformer3D:
             pytest.fail(f"Forward pass failed with exception: {e}")
 
         assert isinstance(outputs, list), "Output should be a list"
-        assert all(
-            isinstance(output, torch.Tensor) for output in outputs
-        ), "All outputs should be torch.Tensor"
+        assert all(isinstance(output, torch.Tensor) for output in outputs), "All outputs should be torch.Tensor"
 
     @pytest.mark.parametrize("in_channels", [1, 3])
     def test_different_input_channels(self, in_channels):
@@ -221,9 +206,7 @@ class TestSwinTransformer3D:
         outputs = model(x)
 
         assert len(outputs) == 4, "Number of outputs should be 4"
-        assert (
-            outputs[0].shape[1] == self.default_params["out_channels"][0]
-        ), "First output channel count is incorrect"
+        assert outputs[0].shape[1] == self.default_params["out_channels"][0], "First output channel count is incorrect"
 
     def test_block_attn_mask(self):
         self.default_params["window_size"] = [(5, 5, 5)] * 4

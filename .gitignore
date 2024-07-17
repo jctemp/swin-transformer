@@ -4,6 +4,8 @@
 .bak
 .vscode
 .data
+.coverage
+htmlcov
 **/__pycache__
 checkpoints
 wandb

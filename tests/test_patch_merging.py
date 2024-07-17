@@ -1,14 +1,12 @@
 import pytest
 import torch
 import torch.nn as nn
+
 from model.modules import PatchMerging2D, PatchMerging3D
 
 
-@pytest.mark.parametrize(
-    "PatchMerging, dims", [(PatchMerging2D, 2), (PatchMerging3D, 3)]
-)
+@pytest.mark.parametrize("PatchMerging, dims", [(PatchMerging2D, 2), (PatchMerging3D, 3)])
 class TestPatchMerging:
-
     @pytest.fixture
     def merge_params(self, dims):
         return {

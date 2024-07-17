@@ -1,5 +1,6 @@
 import pytest
 import torch
+
 from model.modules import WindowMultiHeadAttention2D, WindowMultiHeadAttention3D
 
 
@@ -8,7 +9,6 @@ from model.modules import WindowMultiHeadAttention2D, WindowMultiHeadAttention3D
     [(WindowMultiHeadAttention2D, 2), (WindowMultiHeadAttention3D, 3)],
 )
 class TestWindowMultiHeadAttention:
-
     @pytest.fixture
     def attention_params(self, dims):
         return {

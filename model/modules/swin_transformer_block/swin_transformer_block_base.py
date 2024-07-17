@@ -1,10 +1,11 @@
 from __future__ import annotations
+
 from abc import abstractmethod
 from typing import List, Optional, Tuple, Type
 
-from einops import repeat
 import torch
 import torch.nn as nn
+from einops import repeat
 from timm.layers import DropPath
 
 
@@ -22,7 +23,7 @@ class MLP(nn.Module):
         self.act = act_layer()
         self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
-        
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.fc1(x)
         x = self.act(x)
@@ -30,6 +31,7 @@ class MLP(nn.Module):
         x = self.fc2(x)
         x = self.drop(x)
         return x
+
 
 class SwinTransformerBlock(nn.Module):
     def __init__(

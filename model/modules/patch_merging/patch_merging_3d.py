@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from typing import Optional, Tuple, Type
 
 import torch
@@ -32,15 +33,9 @@ class PatchMerging3D(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, _, D, H, W = x.shape
 
-        assert (
-            D % self.merge_size[0] == 0
-        ), f"Input depth {D} not divisible by merge size {self.merge_size[0]}"
-        assert (
-            H % self.merge_size[1] == 0
-        ), f"Input height {H} not divisible by merge size {self.merge_size[1]}"
-        assert (
-            W % self.merge_size[2] == 0
-        ), f"Input width {W} not divisible by merge size {self.merge_size[2]}"
+        assert D % self.merge_size[0] == 0, f"Input depth {D} not divisible by merge size {self.merge_size[0]}"
+        assert H % self.merge_size[1] == 0, f"Input height {H} not divisible by merge size {self.merge_size[1]}"
+        assert W % self.merge_size[2] == 0, f"Input width {W} not divisible by merge size {self.merge_size[2]}"
 
         x = self.transform(x)
 
@@ -50,4 +45,7 @@ class PatchMerging3D(nn.Module):
         return x
 
     def __repr__(self):
-        return f"{self.__class__.__name__}(in_channels={self.in_channels}, out_channels={self.out_channels}, merge_size={self.merge_size})"
+        return (
+            f"{self.__class__.__name__}(in_channels={self.in_channels}, out_channels={self.out_channels}, "
+            f"merge_size={self.merge_size})"
+        )

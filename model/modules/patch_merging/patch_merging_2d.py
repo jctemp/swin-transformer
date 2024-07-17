@@ -30,7 +30,7 @@ class PatchMerging2D(nn.Module):
         self.norm = None if norm_layer is None else norm_layer(self.out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _, _, W, H = x.shape
+        _, _, H, W = x.shape
 
         assert (
             H % self.merge_size[0] == 0

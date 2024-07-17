@@ -38,36 +38,35 @@ class PatchEmbedding2D(nn.Module):
         self.norm = None if norm_layer is None else norm_layer(self.out_channels)
 
     def ape(self, x: torch.Tensor) -> torch.Tensor:
-        embed_dim, width, height = x.shape[-3:]
+        embed_dim, height, width = x.shape[-3:]
 
         if embed_dim % 4 != 0:
             raise ValueError(
                 f"Embedding dimension must be divisible by 4 for 2D APE, got {embed_dim}"
             )
 
-        pe = torch.zeros(embed_dim, width, height, device=x.device)
+        pe = torch.zeros(embed_dim, height, width, device=x.device)
 
         half_dim = embed_dim // 2
         denominator = torch.exp(
             torch.arange(0, half_dim, 2, device=x.device) * -(math.log(self.ape_freq_base) / half_dim)
         )
 
-        pos_w = torch.arange(width, device=x.device)
         pos_h = torch.arange(height, device=x.device)
-        pos_w = einsum(denominator, pos_w, "d, w -> d w")
-        pos_h = einsum(denominator, pos_h, "d, h -> d h")
+        pos_w = torch.arange(width, device=x.device)
+        pos_h = einsum(denominator, pos_h, "p, h -> p h")
+        pos_w = einsum(denominator, pos_w, "p, w -> p w")
 
         a, b, c = 0, half_dim, 2 * half_dim
-        pe[a + 0 : b : 2, :, :] = repeat(torch.sin(pos_w), "d w -> d w h", h=height)
-        pe[a + 1 : b : 2, :, :] = repeat(torch.cos(pos_w), "d w -> d w h", h=height)
-        pe[b + 0 : c : 2, :, :] = repeat(torch.sin(pos_h), "d h -> d w h", w=width)
-        pe[b + 1 : c : 2, :, :] = repeat(torch.cos(pos_h), "d h -> d w h", w=width)
+        pe[a + 0 : b : 2, :, :] = repeat(torch.sin(pos_h), "e h -> e h w", w=width)
+        pe[a + 1 : b : 2, :, :] = repeat(torch.cos(pos_h), "e h -> e h w", w=width)
+        pe[b + 0 : c : 2, :, :] = repeat(torch.sin(pos_w), "e w -> e h w", h=height)
+        pe[b + 1 : c : 2, :, :] = repeat(torch.cos(pos_w), "e w -> e h w", h=height)
 
         return pe
 
-
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _, _, W, H = x.shape
+        H, W = x.shape[-2:]
 
         assert (
             H % self.patch_size[0] == 0

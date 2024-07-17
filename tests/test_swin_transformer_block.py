@@ -1,4 +1,3 @@
-from einops import rearrange, repeat
 import pytest
 import torch
 from model.modules import (
@@ -104,6 +103,6 @@ class TestSwinTransformerBlock:
         expected_mask_size = 49 if dims == 2 else 343  # 7^2 for 2D, 7^3 for 3D
         assert block.attn_mask.shape[-2:] == (expected_mask_size, expected_mask_size)
 
-        # Check that attn_mask contains only 0.0 and -100.0
+        # Check that attn_mask contains only 0.0 and -float("inf")
         unique_values = torch.unique(block.attn_mask)
-        assert set(unique_values.tolist()) == {0.0, -100.0}
+        assert set(unique_values.tolist()) == {0.0, -float("inf")}

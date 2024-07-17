@@ -17,6 +17,7 @@ class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
         drop_attn: float = 0.1,
         drop_proj: float = 0.1,
         rpe: bool = True,
+        shift: bool = False,
     ) -> None:
         super().__init__(
             in_channels,
@@ -26,6 +27,7 @@ class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
             drop_attn,
             drop_proj,
             rpe,
+            shift,
         )
         self.seq_len = window_size[0] * window_size[1]
 
@@ -62,13 +64,13 @@ class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
             repeat(torch.tensor(self.window_size, dtype=torch.int32), "c -> 1 1 c") - 1
         )
 
-        # Scale the height dimension
+        # Scale the width dimension
         rel_coords[..., 1] *= 2 * self.window_size[1] - 1
 
         # Unique indices
         rel_pos_idx = rel_coords.sum(-1)
 
-        # The index values are not trainable parameteres, but are required in
+        # The index values are not trainable parameters, but are required in
         # state dict. Therefore, we register the tensor.
         self.register_buffer("rel_pos_idx", rel_pos_idx)
 
@@ -83,22 +85,22 @@ class WindowMultiHeadAttention2D(WindowMultiHeadAttention):
         return x + rel_pos_bias
 
     def to_seq(self, x: torch.Tensor, spatial_dims: List[int]) -> torch.Tensor:
-        # Transform input (B C W H) to ("B W/M_w H/M_h" "M_w M_h" C)
-        wm = spatial_dims[0] // self.window_size[0]
-        hm = spatial_dims[1] // self.window_size[1]
-        x = rearrange(x, "b c (wm w) (hm h) -> (b wm hm) (w h) c", wm=wm, hm=hm)
+        # Transform input (B C H W) to ("B H/M_h W/M_w" "M_h M_w" C)
+        hm = spatial_dims[0] // self.window_size[0]
+        wm = spatial_dims[1] // self.window_size[1]
+        x = rearrange(x, "b c (hm h) (wm w) -> (b hm wm) (h w) c", hm=hm, wm=wm)
         return x
 
     def to_spatial(self, x: torch.Tensor, spatial_dims: List[int]) -> torch.Tensor:
-        # Transform ("B W/M_w H/M_h" "M_w M_h" C) to (B C W H)
-        wm = spatial_dims[0] // self.window_size[0]
-        hm = spatial_dims[1] // self.window_size[1]
+        # Transform ("B H/M_h W/M_w" "M_h M_w" C) to (B C H W)
+        hm = spatial_dims[0] // self.window_size[0]
+        wm = spatial_dims[1] // self.window_size[1]
         x = rearrange(
             x,
-            "(b wm hm) (w h) c -> b c (wm w) (hm h)",
-            wm=wm,
+            "(b hm wm) (h w) c -> b c (hm h) (wm w)",
             hm=hm,
-            w=self.window_size[0],
-            h=self.window_size[1],
+            wm=wm,
+            h=self.window_size[0],
+            w=self.window_size[1],
         )
         return x

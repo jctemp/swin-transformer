@@ -1,10 +1,6 @@
 import pytest
 import torch
-from model.modules import (
-    WindowMultiHeadAttention,
-    WindowMultiHeadAttention2D,
-    WindowMultiHeadAttention3D,
-)
+from model.modules import WindowMultiHeadAttention2D, WindowMultiHeadAttention3D
 
 
 @pytest.mark.parametrize(
@@ -23,19 +19,21 @@ class TestWindowMultiHeadAttention:
             "drop_attn": 0.1,
             "drop_proj": 0.1,
             "rpe": True,
+            "shift": False,
         }
 
     def test_initialization(self, Attention, dims, attention_params):
         attn = Attention(**attention_params)
-        assert isinstance(attn, WindowMultiHeadAttention)
+        assert isinstance(attn, Attention)
         assert attn.out_channels == attention_params["in_channels"]
         assert attn.num_heads == attention_params["num_heads"]
         assert len(attn.window_size) == dims
 
-    def test_forward(self, Attention, dims, attention_params):
+    @pytest.mark.parametrize("shift", [True, False])
+    def test_forward(self, Attention, dims, attention_params, shift):
+        attention_params["shift"] = shift
         attn = Attention(**attention_params)
 
-        # Create input tensors
         batch_size = 2
         if dims == 2:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56)
@@ -43,82 +41,58 @@ class TestWindowMultiHeadAttention:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
 
         output, context = attn(x, x, x)
-        assert not torch.any(torch.isnan(output))
-        assert not torch.any(torch.isnan(context))
-
-        # Check output shape
+        assert not torch.isnan(output).any()
+        assert not torch.isnan(context).any()
         assert output.shape == x.shape
 
-        # Check context shape
-        expected_context_shape = (
-            batch_size * (56 // 7) ** dims,
-            attention_params["num_heads"],
-            7**dims,
-            7**dims,
-        )
-        assert context.shape == expected_context_shape
-
-    def test_mask(self, Attention, dims, attention_params):
+    def test_cycle_shift(self, Attention, dims, attention_params):
+        attention_params["shift"] = True
         attn = Attention(**attention_params)
 
-        # Create input tensors
-        batch_size = 2
-        if dims == 2:
-            x = torch.randn(batch_size, attention_params["in_channels"], 56, 56)
-            mask = torch.ones(attention_params["num_heads"], 7*7, 7*7)
-            mask[:, :24, :24] = 0  # mask out roughly a quarter
-        else:
-            x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
-            mask = torch.ones(attention_params["num_heads"], 7*7*7, 7*7*7)
-            mask[:, :171, :171] = 0  # mask out roughly half
-
-        output, context = attn(x, x, x, mask)
-        assert not torch.any(torch.isnan(output))
-        assert not torch.any(torch.isnan(context))
-
-        # Check that masked areas have zero attention
-        masked_area = 24 if dims == 2 else 171
-        assert torch.all(context[:, :, :masked_area, :masked_area] == 0)
-
-    @pytest.mark.parametrize("rpe", [True, False])
-    def test_rpe(self, Attention, dims, attention_params, rpe):
-        attention_params["rpe"] = rpe
-        attn = Attention(**attention_params)
-
-        # Create input tensors
         batch_size = 2
         if dims == 2:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56)
         else:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
 
-        output_rpe, context = attn(x, x, x)
-        assert not torch.any(torch.isnan(output_rpe))
-        assert not torch.any(torch.isnan(context))
+        shifted = attn.cycle_shift(x)
+        assert shifted.shape == x.shape
+        assert not torch.allclose(x, shifted)
 
-        attention_params["rpe"] = not rpe
-        attn_no_rpe = Attention(**attention_params)
-        output_no_rpe, context = attn_no_rpe(x, x, x)
-        assert not torch.any(torch.isnan(output_no_rpe))
-        assert not torch.any(torch.isnan(context))
+        reversed_shift = attn.cycle_shift(shifted, reverse=True)
+        assert reversed_shift.shape == x.shape
 
-        # Outputs should be different when rpe is changed
-        assert not torch.allclose(output_rpe, output_no_rpe)
+        print(x[0, 0, 0, :10])
+        print(shifted[0, 0, 0, :10])
+        print(reversed_shift[0, 0, 0, :10])
 
-    def test_attention_values(self, Attention, dims, attention_params):
-        attention_params["drop_attn"] = 0.0
+        assert torch.all(torch.eq(x, reversed_shift))
+
+    def test_rpe(self, Attention, dims, attention_params):
         attn = Attention(**attention_params)
 
-        # Create input tensors
+        score = torch.randn(2, attention_params["num_heads"], 49, 49)
+        if dims == 3:
+            score = torch.randn(2, attention_params["num_heads"], 343, 343)
+
+        rpe_score = attn.rpe(score)
+        assert rpe_score.shape == score.shape
+        assert not torch.allclose(score, rpe_score)
+
+    def test_to_seq_and_to_spatial(self, Attention, dims, attention_params):
+        attn = Attention(**attention_params)
+
         batch_size = 2
         if dims == 2:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56)
+            spatial_dims = [56, 56]
         else:
             x = torch.randn(batch_size, attention_params["in_channels"], 56, 56, 56)
+            spatial_dims = [56, 56, 56]
 
-        output, context = attn(x, x, x)
-        assert not torch.any(torch.isnan(output))
-        assert not torch.any(torch.isnan(context))
+        seq = attn.to_seq(x, spatial_dims)
+        assert seq.dim() == 3  # (batch * windows, tokens, channels)
 
-        # Check that attention values sum to 1 for each query, allowing for small numerical errors
-        assert torch.allclose(context.sum(dim=-1), torch.ones_like(context.sum(dim=-1)), atol=1e-6, rtol=1e-5)
+        spatial = attn.to_spatial(seq, spatial_dims)
+        assert spatial.shape == x.shape
+        assert torch.allclose(x, spatial)

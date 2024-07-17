@@ -30,18 +30,17 @@ class PatchMerging3D(nn.Module):
         self.norm = None if norm_layer is None else norm_layer(self.out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        _, _, W, H, D = x.shape
-        _, *spatial_dims, _ = x.shape
+        _, _, D, H, W = x.shape
 
         assert (
-            H % self.merge_size[0] == 0
-        ), f"Input height {H} not divisible by merge size {self.merge_size[0]}"
+            D % self.merge_size[0] == 0
+        ), f"Input depth {D} not divisible by merge size {self.merge_size[0]}"
         assert (
-            W % self.merge_size[1] == 0
-        ), f"Input width {W} not divisible by merge size {self.merge_size[1]}"
+            H % self.merge_size[1] == 0
+        ), f"Input height {H} not divisible by merge size {self.merge_size[1]}"
         assert (
-            D % self.merge_size[2] == 0
-        ), f"Input width {D} not divisible by merge size {self.merge_size[2]}"
+            W % self.merge_size[2] == 0
+        ), f"Input width {W} not divisible by merge size {self.merge_size[2]}"
 
         x = self.transform(x)
 

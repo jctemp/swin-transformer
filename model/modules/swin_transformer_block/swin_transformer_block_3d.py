@@ -26,7 +26,7 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
         shift: bool = False,
         norm_layer: Type[nn.Module] = nn.LayerNorm,
         act_layer: Type[nn.Module] = nn.GELU,
-        attn_mask: Optional[torch.Tensor] = None,
+        attn_mask: Optional[torch.Tensor] = None, # 0 keep, -inf drop
     ) -> None:
         super().__init__(
             in_channels,
@@ -34,7 +34,6 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
             mlp_ratio,
             drop,
             drop_path,
-            shift,
             norm_layer,
             act_layer,
         )
@@ -43,8 +42,7 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
             self.create_attn_mask(input_resolution, num_heads) if shift else None,
         )
         if shift and attn_mask is not None:
-            addition_map = self.attn_mask != attn_mask
-            self.attn_mask[addition_map] += attn_mask[addition_map]
+            self.attn_mask += attn_mask
         self.attn = WindowMultiHeadAttention3D(
             in_channels=in_channels,
             num_heads=num_heads,
@@ -53,15 +51,16 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
             drop_attn=drop_attn,
             drop_proj=drop,
             rpe=rpe,
+            shift=shift,
         )
 
     def create_attn_mask(
         self, input_resolution: Tuple[int, int, int], num_heads: int
     ) -> torch.Tensor:
-        W, H, D = input_resolution
-        img_mask = torch.zeros((W, H, D))
+        D, H, W = input_resolution
+        img_mask = torch.zeros((D, H, W))
 
-        w_slices = (
+        d_slices = (
             slice(0, -self.window_size[0]),
             slice(-self.window_size[0], -self.shift_size[0]),
             slice(-self.shift_size[0], None),
@@ -71,20 +70,20 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
             slice(-self.window_size[1], -self.shift_size[1]),
             slice(-self.shift_size[1], None),
         )
-        d_slices = (
+        w_slices = (
             slice(0, -self.window_size[2]),
             slice(-self.window_size[2], -self.shift_size[2]),
             slice(-self.shift_size[2], None),
         )
 
-        for cnt, (w, h, d) in enumerate(
-            itertools.product(w_slices, h_slices, d_slices)
+        for cnt, (d, h, w) in enumerate(
+            itertools.product(d_slices, h_slices, w_slices)
         ):
-            img_mask[w, h, d] = cnt
+            img_mask[d, h, w] = cnt
 
         mask_windows = rearrange(
             img_mask,
-            "(w p1) (h p2) (d p3) -> (w h d) (p1 p2 p3)",
+            "(d p1) (h p2) (w p3) -> (d h w) (p1 p2 p3)",
             p1=self.window_size[0],
             p2=self.window_size[1],
             p3=self.window_size[2],
@@ -92,7 +91,7 @@ class SwinTransformerBlock3D(SwinTransformerBlock):
 
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
         attn_mask = repeat(attn_mask, "b nw1 nw2 -> b h nw1 nw2", h=num_heads)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(
+        attn_mask = attn_mask.masked_fill(attn_mask != 0, -float("inf")).masked_fill(
             attn_mask == 0, float(0.0)
         )
 

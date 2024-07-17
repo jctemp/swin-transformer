@@ -17,6 +17,7 @@ class WindowMultiHeadAttention3D(WindowMultiHeadAttention):
         drop_attn: float = 0.1,
         drop_proj: float = 0.1,
         rpe: bool = True,
+        shift: bool = False,
     ) -> None:
         super().__init__(
             in_channels,
@@ -26,6 +27,7 @@ class WindowMultiHeadAttention3D(WindowMultiHeadAttention):
             drop_attn,
             drop_proj,
             rpe,
+            shift,
         )
         self.seq_len = window_size[0] * window_size[1] * window_size[2]
 
@@ -47,7 +49,7 @@ class WindowMultiHeadAttention3D(WindowMultiHeadAttention):
             )
         )
 
-        # Compute absolute position (dimensions, ws[0], ws[1])
+        # Compute absolute position (dimensions, ws[0], ws[1], ws[2])
         abs_coords = torch.stack(
             torch.meshgrid([torch.arange(ws) for ws in self.window_size], indexing="ij")
         )
@@ -64,11 +66,10 @@ class WindowMultiHeadAttention3D(WindowMultiHeadAttention):
             repeat(torch.tensor(self.window_size, dtype=torch.int32), "c -> 1 1 c") - 1
         )
 
-        # Scale the height dimension
-        rel_coords[..., 2] *= (2 * self.window_size[2] - 1) * (
+        # Scale the depth and height dimensions
+        rel_coords[..., 2] *= (2 * self.window_size[0] - 1) * (
             2 * self.window_size[1] - 1
         )
-        rel_coords[..., 1] *= 2 * self.window_size[1] - 1
 
         # Unique indices
         rel_pos_idx = rel_coords.sum(-1)
@@ -88,32 +89,32 @@ class WindowMultiHeadAttention3D(WindowMultiHeadAttention):
         return x + rel_pos_bias
 
     def to_seq(self, x: torch.Tensor, spatial_dims: List[int]) -> torch.Tensor:
-        # Transform input (B C W H L) to ("B W/M_w H/M_h L/M_l" "M_w M_h M_l" C)
-        wm = spatial_dims[0] // self.window_size[0]
+        # Transform input (B C D H W) to ("B D/M_d H/M_h W/M_w" "M_d M_h M_w" C)
+        dm = spatial_dims[0] // self.window_size[0]
         hm = spatial_dims[1] // self.window_size[1]
-        lm = spatial_dims[2] // self.window_size[2]
+        wm = spatial_dims[2] // self.window_size[2]
         x = rearrange(
             x,
-            "b c (wm w) (hm h) (lm l) -> (b wm hm lm) (w h l) c",
-            wm=wm,
+            "b c (dm d) (hm h) (wm w) -> (b dm hm wm) (d h w) c",
+            dm=dm,
             hm=hm,
-            lm=lm,
+            wm=wm,
         )
         return x
 
     def to_spatial(self, x: torch.Tensor, spatial_dims: List[int]) -> torch.Tensor:
-        # Transform ("B W/M_w H/M_h L/M_l" "M_w M_h M_l" C) to (B C W H L)
-        wm = spatial_dims[0] // self.window_size[0]
+        # Transform ("B D/M_d H/M_h W/M_w" "M_d M_h M_w" C) to (B C D H W)
+        dm = spatial_dims[0] // self.window_size[0]
         hm = spatial_dims[1] // self.window_size[1]
-        lm = spatial_dims[2] // self.window_size[2]
+        wm = spatial_dims[2] // self.window_size[2]
         x = rearrange(
             x,
-            "(b wm hm lm) (w h l) c -> b c (wm w) (hm h) (lm l)",
-            wm=wm,
+            "(b dm hm wm) (d h w) c -> b c (dm d) (hm h) (wm w)",
+            dm=dm,
             hm=hm,
-            lm=lm,
-            w=self.window_size[0],
+            wm=wm,
+            d=self.window_size[0],
             h=self.window_size[1],
-            l=self.window_size[2],
+            w=self.window_size[2],
         )
         return x

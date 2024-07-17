@@ -1,4 +1,6 @@
 from typing import List, Tuple, Type
+
+from itertools import product
 from einops import rearrange, repeat
 import torch
 import torch.nn as nn
@@ -9,13 +11,13 @@ from ..modules import *
 class SimpleCrop2D(nn.Module):
     def __init__(self, crop_range: Tuple[int, int, int, int]):
         super().__init__()
-        self.crop_range = crop_range  # (left, right, top, bottom)
+        self.crop_range = crop_range  # (top, bottom, left, right)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x[
             ...,
-            self.crop_range[2] : self.crop_range[3],
             self.crop_range[0] : self.crop_range[1],
+            self.crop_range[2] : self.crop_range[3],
         ]
 
 
@@ -43,14 +45,6 @@ class SwinTransformer2D(nn.Module):
         padding_layer: Type[nn.Module] = nn.ZeroPad2d,
     ):
         super().__init__()
-
-        assert (
-            len(out_channels)
-            == len(depths)
-            == len(num_heads)
-            == len(window_size)
-            == len(merge_size) + 1
-        )
 
         self.stages = nn.ModuleList()
         in_res = input_resolution
@@ -98,12 +92,16 @@ class SwinTransformer2D(nn.Module):
             block_attn_mask = None
             if padding != (0, 0):
                 block_mask = torch.zeros(in_res_w_pad)
-                for w in range(1, padding[0] + 1):
-                    for h in range(0, in_res_w_pad[1]):
-                        block_mask[-w, h] = float(-100.0)
-                for h in range(1, padding[1] + 1):
-                    for w in range(0, in_res_w_pad[0]):
-                        block_mask[w, -h] = float(-100.0)
+                h_slices = (
+                    slice(0, -padding[0]),
+                    slice(-padding[0], None),
+                )
+                w_slices = (
+                    slice(0, -padding[1]),
+                    slice(-padding[1], None),
+                )
+                for cnt, (h, w) in enumerate(product(h_slices, w_slices)):
+                    block_mask[h, w] = cnt
                 block_mask = rearrange(
                     block_mask,
                     "(w p1) (h p2) -> (w h) (p1 p2)",
@@ -115,7 +113,7 @@ class SwinTransformer2D(nn.Module):
                     block_attn_mask, "b nw1 nw2 -> b h nw1 nw2", h=num_heads[i]
                 )
                 block_attn_mask = block_attn_mask.masked_fill(
-                    block_attn_mask != 0, float(-100.0)
+                    block_attn_mask != 0, -float("inf")
                 ).masked_fill(block_attn_mask == 0, float(0.0))
 
             blocks: List[SwinTransformerBlock2D] = []

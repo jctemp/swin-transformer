@@ -1,4 +1,6 @@
 from typing import List, Tuple, Type
+
+from itertools import product
 from einops import rearrange, repeat
 import torch
 import torch.nn as nn
@@ -9,13 +11,13 @@ from ..modules import *
 class SimpleCrop3D(nn.Module):
     def __init__(self, crop_range: Tuple[int, int, int, int, int, int]):
         super().__init__()
-        self.crop_range = crop_range  # (left, right, top, bottom, front, back)
+        self.crop_range = crop_range  # (front, back, top, bottom, left, right)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return x[
             ...,
-            self.crop_range[2] : self.crop_range[3],
             self.crop_range[0] : self.crop_range[1],
+            self.crop_range[2] : self.crop_range[3],
             self.crop_range[4] : self.crop_range[5],
         ]
 
@@ -44,14 +46,6 @@ class SwinTransformer3D(nn.Module):
         padding_layer: Type[nn.Module] = nn.ZeroPad3d,
     ):
         super().__init__()
-
-        assert (
-            len(out_channels)
-            == len(depths)
-            == len(num_heads)
-            == len(window_size)
-            == len(merge_size) + 1
-        )
 
         self.stages = nn.ModuleList()
         in_res = input_resolution
@@ -107,21 +101,26 @@ class SwinTransformer3D(nn.Module):
             block_attn_mask = None
             if padding != (0, 0, 0):
                 block_mask = torch.zeros(in_res_w_pad)
-                for w in range(1, padding[0] + 1):
-                    for h in range(0, in_res_w_pad[1]):
-                        for d in range(0, in_res_w_pad[2]):
-                            block_mask[-w, h, d] = float(-100.0)
-                for h in range(1, padding[1] + 1):
-                    for w in range(0, in_res_w_pad[0]):
-                        for d in range(0, in_res_w_pad[2]):
-                            block_mask[w, -h, d] = float(-100.0)
-                for d in range(1, padding[2] + 1):
-                    for w in range(0, in_res_w_pad[0]):
-                        for h in range(0, in_res_w_pad[1]):
-                            block_mask[w, h, -d] = float(-100.0)
+
+                d_slices = (
+                    slice(0, -padding[0]),
+                    slice(-padding[0], None),
+                )
+                h_slices = (
+                    slice(0, -padding[1]),
+                    slice(-padding[1], None),
+                )
+                w_slices = (
+                    slice(0, -padding[2]),
+                    slice(-padding[2], None),
+                )
+
+                for cnt, (d, h, w) in enumerate(product(d_slices, h_slices, w_slices)):
+                    block_mask[d, h, w] = cnt
+
                 block_mask = rearrange(
                     block_mask,
-                    "(w p1) (h p2) (d p3) -> (w h d) (p1 p2 p3)",
+                    "(d p1) (h p2) (w p3) -> (d h w) (p1 p2 p3)",
                     p1=window_size[i][0],
                     p2=window_size[i][1],
                     p3=window_size[i][2],
@@ -131,12 +130,11 @@ class SwinTransformer3D(nn.Module):
                     block_attn_mask, "b nw1 nw2 -> b h nw1 nw2", h=num_heads[i]
                 )
                 block_attn_mask = block_attn_mask.masked_fill(
-                    block_attn_mask != 0, float(-100.0)
+                    block_attn_mask != 0, -float("inf")
                 ).masked_fill(block_attn_mask == 0, float(0.0))
 
             blocks: List[SwinTransformerBlock3D] = []
             for k in range(depth):
-
                 pad = padding_layer((0, padding[0], 0, padding[1], 0, padding[2]))
                 crop = SimpleCrop3D(
                     (

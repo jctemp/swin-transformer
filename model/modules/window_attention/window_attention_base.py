@@ -7,6 +7,7 @@ import torch
 import torch.nn as nn
 from einops import einsum, rearrange, repeat
 
+
 class WindowMultiHeadAttention(ABC, nn.Module):
 
     def __init__(
@@ -18,6 +19,7 @@ class WindowMultiHeadAttention(ABC, nn.Module):
         drop_attn: float = 0.1,
         drop_proj: float = 0.1,
         rpe: bool = True,
+        shift: bool = False,
     ) -> None:
         super().__init__()
 
@@ -31,7 +33,10 @@ class WindowMultiHeadAttention(ABC, nn.Module):
         self.num_heads = num_heads
         self.window_size = window_size
         self.use_rpe = rpe
+        self.shift = shift
 
+        self.dims = len(window_size)
+        self.shift_size = tuple([w // 2 for w in window_size])
         self.inv_sqrt_dim = 1.0 / math.sqrt(in_channels // num_heads)
         self.rel_pos_bias_table = self.init_rpe()
 
@@ -61,14 +66,26 @@ class WindowMultiHeadAttention(ABC, nn.Module):
     def to_spatial(self, x: torch.Tensor, spatial_dims: List[int]) -> torch.Tensor:
         pass
 
+    def cycle_shift(self, x: torch.Tensor, reverse: bool = False) -> torch.Tensor:
+        return torch.roll(
+            x,
+            [s * (1 if reverse else -1) for s in self.shift_size],
+            dims=tuple(range(-self.dims, 0)),
+        )
+
     def forward(
         self,
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,  # (heads, H, W)
+        mask: Optional[torch.Tensor] = None,  # (heads, [D], H, W) | 0: attend, -float("inf"): don't attend
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         _, _, *spatial_dims = query.shape
+        
+        if self.shift:
+            query = self.cycle_shift(query)
+            key = self.cycle_shift(key)
+            value = self.cycle_shift(value)
 
         query = self.to_seq(query, spatial_dims)
         key = self.to_seq(key, spatial_dims)
@@ -100,26 +117,10 @@ class WindowMultiHeadAttention(ABC, nn.Module):
 
         # Mask unknown scores (relevant for decoders)
         if mask is not None:
-            score_dims = len(score.shape)
-            mask_dims = len(mask.shape)
-
-            if mask_dims == score_dims:
-                if (
-                    score.shape[0] != mask.shape[0]
-                    and score.shape[0] % mask.shape[0] == 0
-                ):
-                    batch_diff = score.shape[0] // mask.shape[0]
-                    mask = repeat(mask, "b h nw1 nw2 -> (b d) h nw1 nw2", d=batch_diff)
-            else:
-                raise ValueError(
-                    f"len(score.shape) ({len(score.shape)}) != len(mask.shape) ({len(mask.shape)})"
-                )
-
-            score = score + mask
+            score = score.masked_fill(mask == -float("inf"), -1e9)
 
         # Compute attention weights
         context = self.softmax(score)
-        assert not torch.any(torch.isnan(context)), context
         context = self.drop_attn(context)
 
         # Attend values
@@ -131,5 +132,8 @@ class WindowMultiHeadAttention(ABC, nn.Module):
         x = self.drop_proj(x)
 
         x = self.to_spatial(x, spatial_dims)
+
+        if self.shift:
+            x = self.cycle_shift(x, reverse=True)
 
         return x, context

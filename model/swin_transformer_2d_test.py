@@ -6,7 +6,7 @@ from .swin_transformer_2d import (
     PatchEmbedding2D,
     PatchMerging2D,
     SwinTransformer2D,
-    SwinTransformerConfig,
+    SwinTransformerConfig2D,
     WindowShift2D,
 )
 
@@ -85,7 +85,6 @@ def test_attention_2d():
 
 
 def test_swin_transformer_2d():
-    # Example
     batch = 2
     input_size = (224, 224)
     in_channels = 3
@@ -96,7 +95,7 @@ def test_swin_transformer_2d():
     num_heads = [6, 6, 6]
 
     x = torch.randn((batch, in_channels, *input_size)).to(DEVICE)
-    config = SwinTransformerConfig(
+    config = SwinTransformerConfig2D(
         input_size,
         in_channels,
         embed_dim,

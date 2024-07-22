@@ -1,0 +1,46 @@
+#!/bin/sh
+
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <command>"
+    echo "Commands:"
+    echo "  setup: Setup the project."
+    echo "  fmt: Format the project."
+    exit 1
+fi
+
+if [ ! -f requirements.txt ]; then
+    echo "requirements.txt not found."
+    exit 1
+fi
+
+if [ ! command -v uv >/dev/null 2>&1 ]; then
+    echo "uv not found."
+    exit 1
+fi
+
+if [ ! command -v ruff >/dev/null 2>&1 ]; then
+    echo "ruff not found."
+    exit 1
+fi
+
+# setup
+cmd=$1
+shift
+
+if [ $cmd = "setup" ]; then
+    if [ ! -d .venv ]; then
+        uv venv
+        . .venv/bin/activate
+        uv pip install -r requirements.txt
+    else
+        echo "Virtual environment already exists."
+        . .venv/bin/activate
+    fi
+elif [ $cmd = "fmt" ]; then
+    ruff format .
+    ruff check --select I --fix .
+    ruff check --fix .
+else
+    echo "Unknown command: $cmd"
+    exit 1
+fi

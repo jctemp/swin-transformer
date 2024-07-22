@@ -6,33 +6,19 @@ dynamic = ["version"]
 minversion = "8.0"
 addopts = "-ra -v -s"
 testpaths = [
-    "tests",
+    "model",
 ]
 pythonpath = "."
 
 [tool.ruff]
 exclude = [
-    ".bzr",
     ".direnv",
-    ".eggs",
     ".git",
-    ".hg",
-    ".mypy_cache",
-    ".nox",
-    ".pants.d",
-    ".pytype",
+    ".pytest_cache",
     ".ruff_cache",
-    ".svn",
-    ".tox",
     ".venv",
     "__pycache__",
     "__pypackages__",
-    "_build",
-    "buck-out",
-    "build",
-    "dist",
-    "node_modules",
-    "venv",
 ]
 line-length = 120
 target-version = "py311"

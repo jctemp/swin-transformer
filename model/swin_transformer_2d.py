@@ -459,7 +459,22 @@ class SwinTransformerBlock2D(nn.Module):
         FractalNet: Ultra-Deep Neural Networks without Residuals - Larsson et al.
 
     Args:
-        nn (_type_): _description_
+        input_size (Tuple[int, int]): Size of the input image (height, width).
+        embed_dim (int): Embedding dimension.
+        num_heads (int): Number of attention heads.
+        window_size (Tuple[int, int]): Size of the window (height, width).
+        mlp_ratio (float, optional): Ratio of MLP hidden dim to embedding dim. Defaults to 4.0.
+        qkv_bias (bool, optional): Whether to add bias to the QKV linear layer. Defaults to False.
+        qk_scale (Optional[float], optional): Scaling factor for QK attention. Defaults to None.
+        drop (float, optional): Dropout rate. Defaults to 0.0.
+        drop_attn (float, optional): Attention dropout rate. Defaults to 0.0.
+        drop_path (float, optional): Stochastic depth rate. Defaults to 0.0.
+        rpe (bool, optional): Whether to use relative position encoding. Defaults to True.
+        rpe_dist (Optional[Tuple[int, int]], optional): Maximum distance for relative position encoding.
+            Defaults to None.
+        shift (bool, optional): Whether to use shifted windows. Defaults to False.
+        act_layer (Type[nn.Module], optional): Activation layer type. Defaults to nn.GELU.
+        norm_layer (Optional[Type[nn.Module]], optional): Normalisation layer type. Defaults to nn.LayerNorm.
     """
 
     def __init__(

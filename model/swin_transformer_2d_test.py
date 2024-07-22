@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 
@@ -7,6 +6,7 @@ from .swin_transformer_2d import (
     PatchEmbedding2D,
     PatchMerging2D,
     SwinTransformer2D,
+    SwinTransformerConfig,
     WindowShift2D,
 )
 
@@ -49,7 +49,7 @@ def test_window_shift_2d():
 
     x = torch.randn((2, input_size[0] * input_size[1], embed_dim)).to(DEVICE)
     cs = torch.jit.script(WindowShift2D(input_size, shift_size).to(DEVICE))
-    csr = torch.jit.script(WindowShift2D(input_size, shift_size, reversed=True).to(DEVICE))
+    csr = torch.jit.script(WindowShift2D(input_size, shift_size, reverse=True).to(DEVICE))
     assert torch.equal(x, csr(cs(x)))  # type: ignore
 
 
@@ -96,25 +96,25 @@ def test_swin_transformer_2d():
     num_heads = [6, 6, 6]
 
     x = torch.randn((batch, in_channels, *input_size)).to(DEVICE)
-    model = torch.jit.script(
-        SwinTransformer2D(
-            input_size,
-            in_channels,
-            embed_dim,
-            num_blocks,
-            patch_window_size,
-            block_window_size,
-            num_heads,
-            mlp_ratio=4.0,
-            qkv_bias=True,
-            qk_scale=None,
-            drop=0.0,
-            drop_attn=0.0,
-            drop_path=0.0,
-            rpe=True,
-            act_layer=nn.GELU,
-        ).to(DEVICE)
+    config = SwinTransformerConfig(
+        input_size,
+        in_channels,
+        embed_dim,
+        num_blocks,
+        patch_window_size,
+        block_window_size,
+        num_heads,
+        mlp_ratio=4.0,
+        qkv_bias=True,
+        qk_scale=None,
+        drop=0.0,
+        drop_attn=0.0,
+        drop_path=0.0,
+        rpe=True,
+        act_layer=nn.GELU,
     )
+
+    model = torch.jit.script(SwinTransformer2D(config).to(DEVICE))
 
     x_out = model(x)  # type: ignore
 

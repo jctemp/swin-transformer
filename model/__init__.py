@@ -1,6 +1,6 @@
-from .swin_transformer_2d import SwinTransformer2D
+from .swin_transformer_2d import SwinTransformer2D, SwinTransformerConfig
 
 __all__ = [
-    "modules",
     "SwinTransformer2D",
+    "SwinTransformerConfig",
 ]

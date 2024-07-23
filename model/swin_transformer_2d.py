@@ -528,13 +528,12 @@ class SwinTransformerBlock2D(nn.Module):
         self.out_channels = embed_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """_summary_
-
+        """
         Args:
-            x (torch.Tensor): _description_
+            x (torch.Tensor): Input tensor (B, N, C).
 
         Returns:
-            torch.Tensor: _description_
+            torch.Tensor: Output tensor (B, N, C).
         """
 
         skip = x

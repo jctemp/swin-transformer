@@ -43,7 +43,7 @@ class PatchEmbedding2D(nn.Module):
         ), f"Input size {input_size} must be divisible by the patch size {patch_size}"
 
         # Output transformation
-        self.reshape = elt.Rearrange("b c h w -> b (h w) c")
+        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c")
 
         # Patch embedding
         self.proj = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
@@ -65,7 +65,7 @@ class PatchEmbedding2D(nn.Module):
             torch.Tensor: Output tensor (B, N, C).
         """
         x = self.proj(x)
-        x = self.reshape(x)
+        x = self.rearrange_output(x)
         x = self.norm(x)
         return x
 
@@ -100,25 +100,21 @@ class PatchMerging2D(nn.Module):
         ), f"Input size {input_size} must be divisible by the merge size {merge_size}"
 
         # Input/Output transformations
-        self.expand = elt.Rearrange("b (h w) c -> b h w c", h=input_size[0], w=input_size[1])
-        self.squeeze = elt.Rearrange("b h w c -> b (h w) c")
+        self.rearrange_input = elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
+        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c")
 
-        # Merge parameters
-        self.indices = list(itertools.product(*[list(range(0, i)) for i in merge_size]))
-        self.merge_size = merge_size
-        self.merge_factor = len(self.indices)
-        self.merge_target = len(self.indices) // 2
+        merge_dim = merge_size[0] * merge_size[1] * embed_dim
 
         # Projection and Normalisation
-        self.proj = nn.Linear(self.merge_factor * embed_dim, self.merge_target * embed_dim)
-        self.norm = norm_layer(self.merge_factor * embed_dim) if norm_layer is not None else nn.Identity()
+        self.proj = nn.Conv2d(embed_dim, merge_dim // 2, merge_size, merge_size)
+        self.norm = norm_layer(merge_dim // 2) if norm_layer is not None else nn.Identity()
 
         # Auxilliary
         self.input_size = input_size
         self.output_size = (input_size[0] // merge_size[0], input_size[1] // merge_size[1])
         self.merge_size = merge_size
         self.in_channels = embed_dim
-        self.out_channels = embed_dim * self.merge_target
+        self.out_channels = merge_dim // 2
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -128,12 +124,10 @@ class PatchMerging2D(nn.Module):
         Returns:
             torch.Tensor: Output tensor (B, N', C').
         """
-
-        x = self.expand(x)
-        x = torch.cat([x[:, h :: self.merge_size[0], w :: self.merge_size[1], :] for h, w in self.indices], dim=-1)
-        x = self.squeeze(x)
-        x = self.norm(x)
+        x = self.rearrange_input(x)
         x = self.proj(x)
+        x = self.rearrange_output(x)
+        x = self.norm(x)
         return x
 
 
@@ -537,12 +531,12 @@ class SwinTransformerBlock2D(nn.Module):
         """
 
         skip = x
-        x = self.norm_attn(x)
         x = self.drop_path(self.attn(x)) + skip
+        x = self.norm_attn(x)
 
         skip = x
-        x = self.norm_proj(x)
         x = self.drop_path(self.proj(x)) + skip
+        x = self.norm_proj(x)
 
         return x
 

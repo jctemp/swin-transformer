@@ -1,11 +1,11 @@
-.ipynb_checkpoints
-.direnv
-.venv
 .bak
-.vscode
-.data
 .coverage
-htmlcov
+.direnv
+.ipynb_checkpoints
+.venv
+.vscode
 **/__pycache__
+**/.data
 checkpoints
+htmlcov
 wandb

@@ -1,0 +1,5 @@
+learning_rate: 0.0003
+max_epochs: 100
+name: reference
+steps_per_epoch: 352
+weight_decay: 0.05

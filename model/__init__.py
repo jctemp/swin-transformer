@@ -1,9 +1,8 @@
-from .swin_transformer_2d import SwinTransformer2D, SwinTransformerConfig2D
-from .swin_transformer_3d import SwinTransformer3D, SwinTransformerConfig3D
+from .swin_transformer_2d import SwinTransformer2D, SwinTransformerConfig2D, RelativePositionalEmeddingMode, PatchMode
 
 __all__ = [
     "SwinTransformer2D",
     "SwinTransformerConfig2D",
-    "SwinTransformer3D",
-    "SwinTransformerConfig3D",
+    "RelativePositionalEmeddingMode",
+    "PatchMode",
 ]

@@ -6,6 +6,7 @@ from .swin_transformer_2d import (
     PatchEmbedding2D,
     PatchMerging2D,
     PatchMode,
+    RelativePositionalEmeddingMode,
     SwinTransformer2D,
     SwinTransformerConfig2D,
     WindowShift2D,
@@ -81,9 +82,10 @@ def test_attention_2d():
     input_size = (6, 6)
     window_size = (2, 2)
     embed_dim = 12
-    num_heads = 4
-
+    num_heads = 3
     x = torch.randn((2, input_size[0] * input_size[1], embed_dim)).to(DEVICE)
+    
+    mode = RelativePositionalEmeddingMode.BIAS
     attn = torch.jit.script(
         Attention2D(
             input_size,
@@ -94,8 +96,7 @@ def test_attention_2d():
             qk_scale=num_heads**-0.5,
             drop_attn=0.0,
             drop_proj=0.0,
-            rpe=True,
-            rpe_dist=(input_size[0] // window_size[0], input_size[1] // window_size[1]),
+            rpe_mode=mode,
             shift=True,
         ).to(DEVICE)
     )
@@ -106,6 +107,27 @@ def test_attention_2d():
     assert x_out.shape == x.shape  # type: ignore
     assert torch.equal(a[:9, 0].masked_fill_(a[:9, 0] != 0, 1), m.masked_fill_(m == 0, 1).masked_fill_(m == -1e9, 0))
 
+    mode = RelativePositionalEmeddingMode.CONTEXT
+    attn = torch.jit.script(
+        Attention2D(
+            input_size,
+            window_size,
+            embed_dim,
+            num_heads,
+            qkv_bias=True,
+            qk_scale=num_heads**-0.5,
+            drop_attn=0.0,
+            drop_proj=0.0,
+            rpe_mode=mode,
+            shift=True,
+        ).to(DEVICE)
+    )
+    x_out = attn(x)  # type: ignore
+    a = attn.attn_weights  # type: ignore
+    m = attn.shift_mask  # type: ignore
+
+    assert x_out.shape == x.shape  # type: ignore
+    assert torch.equal(a[:9, 0].masked_fill_(a[:9, 0] != 0, 1), m.masked_fill_(m == 0, 1).masked_fill_(m == -1e9, 0))
 
 def test_swin_transformer_2d():
     batch = 2
@@ -132,8 +154,8 @@ def test_swin_transformer_2d():
         drop=0.0,
         drop_attn=0.0,
         drop_path=0.0,
-        rpe=True,
         act_layer=nn.GELU,
+        rpe_mode=RelativePositionalEmeddingMode.CONTEXT,
     )
 
     model = torch.jit.script(SwinTransformer2D(config).to(DEVICE))

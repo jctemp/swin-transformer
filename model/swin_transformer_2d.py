@@ -211,15 +211,18 @@ class WindowShift2D(nn.Module):
         return x
 
 
+class RelativePositionalEmeddingMode(enum.Enum):
+    BIAS = "bias"
+    CONTEXT = "context"
+    NONE = "none"
+
+
 class Attention2D(nn.Module):
     """Attention2D
 
     This is the multi-head self-attention module for the Swin Transformer. It works only on 2D data. We cannot use the
     standard multi-head self-attention module because of the cyclic shift operation and the positional embedding. Due to
     the cyclic shift operation, the attention module has to compute a mask for the non-adjacent items in the windows.
-
-    TODO: Implement context-aware relative position encoding.
-    TODO: Change the `rpe` parameter to `rpe_type` and add `rpe_type` parameter.
 
     References:
         Swin Transformer: Hierarchical Vision Transformer using Shifted Windows - Li et al.
@@ -235,8 +238,7 @@ class Attention2D(nn.Module):
         qk_scale (Optional[float]): Scaling factor for QK attention.
         drop_attn (float): Attention dropout rate.
         drop_proj (float): Projection dropout rate.
-        rpe (bool): Whether to use relative position encoding.
-        rpe_dist (Optional[Tuple[int, int]]): Maximum distance for relative position encoding.
+        rpe_mode (RelativePositionalEmbeddingMode): Whether to use relative position encoding.
         shift (bool): Whether to use shifted windows.
     """
 
@@ -250,8 +252,7 @@ class Attention2D(nn.Module):
         qk_scale: Optional[float] = None,
         drop_attn: float = 0.0,
         drop_proj: float = 0.0,
-        rpe: bool = True,
-        rpe_dist: Optional[Tuple[int, int]] = None,
+        rpe_mode: RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS,
         shift: bool = False,
     ) -> None:
         super().__init__()
@@ -282,17 +283,32 @@ class Attention2D(nn.Module):
         # Relative position encoding
         #
         #   No parameter sharing across heads as it is not context aware
-        #   Clippling possible because window_size produces significant small sequences
+        #   Clippling is disable, however, if needed one can parameterise the MHSA module with it
         #
         #   Rethinking and Improving Relative Position Encoding for Vision Transformer - Wu et al. (2021)
-        #   see figure 1 (a) and eq. 13 + 14
-        self.rpe = rpe
-        max_distance = (window_size[0] - 1, window_size[1] - 1) if rpe_dist is None else rpe_dist
-        self.embedding_table = nn.Embedding(sum(2 * d + 1 for d in max_distance), num_heads)
-        self.register_buffer("indices", torch.tensor(0))  # to cleanly move to device
-        self.indices = self._create_bias_indices(window_size, max_distance)
+        #   see figure 1 and eq. 13, 14, 15, 16
+        max_distance = (window_size[0] - 1, window_size[1] - 1)
+        self.bias_mode = rpe_mode == RelativePositionalEmeddingMode.BIAS
+        self.context_mode = rpe_mode == RelativePositionalEmeddingMode.CONTEXT
 
-        self.to_broadcast_embedding = elt.Rearrange("h w nh -> nh h w")
+        self.embedding_table = nn.Embedding(sum(2 * d + 1 for d in max_distance), num_heads) if self.bias_mode else None
+        self.embedding_table_q = (
+            nn.Embedding(sum(2 * d + 1 for d in max_distance), embed_dim) if self.context_mode else None
+        )
+        self.embedding_table_k = (
+            nn.Embedding(sum(2 * d + 1 for d in max_distance), embed_dim) if self.context_mode else None
+        )
+        self.register_buffer("indices", None)  # to cleanly move to device
+        self.indices = self._create_indices(window_size, max_distance) if self.bias_mode or self.context_mode else None
+
+        self.reshape_embedding = (
+            elt.Rearrange(
+                "h w nh -> nh h w" if self.bias_mode else "n m (nh c) -> n m nh c",
+                nh=num_heads,
+            )
+            if self.bias_mode or self.context_mode
+            else nn.Identity()
+        )
 
         # Shifted windows
         #
@@ -311,12 +327,9 @@ class Attention2D(nn.Module):
         self.shift_win_rev = WindowShift2D(input_size, self.shift_size, reverse=True) if shift else nn.Identity()
 
         self.to_broadcast_mask = elt.Rearrange("bw ... -> () bw () ...") if shift else nn.Identity()
-        self.to_broadcast_score = (
-            elt.Rearrange("(b bw) ... -> b bw ...", bw=self.shift_mask.shape[0]) if shift else nn.Identity()
-        )
-        self.to_merged_score = (
-            elt.Rearrange("b bw ... -> (b bw) ...", bw=self.shift_mask.shape[0]) if shift else nn.Identity()
-        )
+        bw = (input_size[0] // window_size[0]) * (input_size[1] // window_size[1])
+        self.to_broadcast_score = elt.Rearrange("(b bw) ... -> b bw ...", bw=bw)
+        self.to_merged_score = elt.Rearrange("b bw ... -> (b bw) ...", bw=bw)
 
         # Multi-head self-attention
         self.num_heads = num_heads
@@ -336,6 +349,7 @@ class Attention2D(nn.Module):
         self.out_size = input_size
         self.in_channels = embed_dim
         self.out_channels = embed_dim
+        self.window_size = window_size
 
         # Others
         self.attn_weights: torch.Tensor = torch.tensor(0)
@@ -363,7 +377,7 @@ class Attention2D(nn.Module):
             id_diff_windows == 0, float(0.0)
         )
 
-    def _create_bias_indices(self, window_size: Tuple[int, int], max_distance: Tuple[int, int]) -> torch.Tensor:
+    def _create_indices(self, window_size: Tuple[int, int], max_distance: Tuple[int, int]) -> torch.Tensor:
         offsets = [0] + list(itertools.accumulate((2 * d + 1 for d in max_distance[:-1])))
 
         h_abs_dist = torch.arange(window_size[0])
@@ -383,31 +397,44 @@ class Attention2D(nn.Module):
         """
         Args:
             x (torch.Tensor): Input tensor (B, N, C).
-            mask (Optional[torch.Tensor], optional): Mask tensor ([B, HEAD] N, N). Defaults to None.
+            mask (Optional[torch.Tensor], optional): Mask tensor ([B, BW, HEAD] N, N). Defaults to None.
+                BW is the number of windows.
 
         Returns:
             torch.Tensor: Output tensor (B, N, C).
         """
         if self.shift:
             x = self.shift_win(x)
-
         x = self.to_windows(x)
         qkv = self.to_qkv(self.proj_qkv(x))
         q, k, v = qkv[0], qkv[1], qkv[2]
         q = q * self.scale
-
         s = torch.einsum("b h n c, b h m c -> b h n m", q, k)
-        if self.rpe:
+
+        if self.bias_mode:
+            assert self.indices is not None, "Indices must be created for bias mode."
+            assert self.embedding_table is not None, "Embedding table must be created for bias mode."
             biases = self.embedding_table(self.indices).sum(0)
-            biases = self.to_broadcast_embedding(biases)
+            biases = self.reshape_embedding(biases)
             s = s + biases
+        elif self.context_mode:
+            assert self.indices is not None, "Indices must be created for context mode."
+            assert self.embedding_table_q is not None, "Embedding table Q must be created for context mode."
+            assert self.embedding_table_k is not None, "Embedding table K must be created for context mode."
+            q_embedding = self.embedding_table_q(self.indices).sum(0)
+            k_embedding = self.embedding_table_k(self.indices).sum(0)
+            q_embedding = self.reshape_embedding(q_embedding)
+            k_embedding = self.reshape_embedding(k_embedding)
+            s = s + torch.einsum("b h n c, n m h c -> b h n m", q, k_embedding)
+            s = s + torch.einsum("b h n c, n m h c -> b h n m", k, q_embedding)
 
         if self.shift:
             s = self.to_broadcast_score(s) + self.to_broadcast_mask(self.shift_mask)
             s = self.to_merged_score(s)
 
         if mask is not None:
-            s = s.masked_fill(mask == 0, float(-1e9))
+            s = self.to_broadcast_score(s) + mask
+            s = self.to_merged_score(s)
 
         a = self.softmax(s)
         self.attn_weights = a
@@ -492,18 +519,16 @@ class SwinTransformerBlock2D(nn.Module):
         embed_dim (int): Embedding dimension.
         num_heads (int): Number of attention heads.
         window_size (Tuple[int, int]): Size of the window (height, width).
-        mlp_ratio (float, optional): Ratio of MLP hidden dim to embedding dim. Defaults to 4.0.
-        qkv_bias (bool, optional): Whether to add bias to the QKV linear layer. Defaults to False.
-        qk_scale (Optional[float], optional): Scaling factor for QK attention. Defaults to None.
-        drop (float, optional): Dropout rate. Defaults to 0.0.
-        drop_attn (float, optional): Attention dropout rate. Defaults to 0.0.
-        drop_path (float, optional): Stochastic depth rate. Defaults to 0.0.
-        rpe (bool, optional): Whether to use relative position encoding. Defaults to True.
-        rpe_dist (Optional[Tuple[int, int]], optional): Maximum distance for relative position encoding.
-            Defaults to None.
-        shift (bool, optional): Whether to use shifted windows. Defaults to False.
-        act_layer (Type[nn.Module], optional): Activation layer type. Defaults to nn.GELU.
-        norm_layer (Optional[Type[nn.Module]], optional): Normalisation layer type. Defaults to nn.LayerNorm.
+        mlp_ratio (float, optional): Ratio of MLP hidden dim to embedding dim.
+        qkv_bias (bool, optional): Whether to add bias to the QKV linear layer.
+        qk_scale (Optional[float], optional): Scaling factor for QK attention.
+        drop (float, optional): Dropout rate.
+        drop_attn (float, optional): Attention dropout rate.
+        drop_path (float, optional): Stochastic depth rate.
+        rpe_mode (RelativePositionalEmbeddingMode): Relative position encoding mode.
+        shift (bool, optional): Whether to use shifted windows.
+        act_layer (Type[nn.Module], optional): Activation layer type.
+        norm_layer (Optional[Type[nn.Module]], optional): Normalisation layer type.
     """
 
     def __init__(
@@ -518,8 +543,7 @@ class SwinTransformerBlock2D(nn.Module):
         drop: float = 0.0,
         drop_attn: float = 0.0,
         drop_path: float = 0.0,
-        rpe: bool = True,
-        rpe_dist: Optional[Tuple[int, int]] = None,
+        rpe_mode: RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS,
         shift: bool = False,
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Optional[Type[nn.Module]] = nn.LayerNorm,
@@ -527,16 +551,34 @@ class SwinTransformerBlock2D(nn.Module):
         super().__init__()
 
         assert (
-            input_size[0] % window_size[0] == 0 and input_size[1] % window_size[1] == 0
-        ), f"Input size {input_size} must be divisible by the window size {window_size}"
-        assert (
             embed_dim % num_heads == 0
         ), f"Embedding dimension {embed_dim} must be divisible by the number of heads {num_heads}"
+
+        # compute padding for input
+        pad_size = (
+            window_size[0] - input_size[0] % window_size[0] if input_size[0] % window_size[0] != 0 else 0,
+            window_size[1] - input_size[1] % window_size[1] if input_size[1] % window_size[1] != 0 else 0,
+        )
+        pad_input_size = (input_size[0] + pad_size[0], input_size[1] + pad_size[1])
+        self.pad = nn.ConstantPad2d((0, pad_size[1], 0, pad_size[0]), 0) if sum(pad_size) > 0 else nn.Identity()
+        self.register_buffer("padding_mask", torch.tensor(0.0))  # to cleanly move to device
+        self.padding_mask = self._create_padding_mask(pad_input_size, window_size, pad_size)
+        self.rearrange_input = (
+            elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
+            if sum(pad_size) > 0
+            else nn.Identity()
+        )
+        self.rearrange_pad_input = (
+            elt.Rearrange("b (h w) c -> b c h w", h=pad_input_size[0], w=pad_input_size[1])
+            if sum(pad_size) > 0
+            else nn.Identity()
+        )
+        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c") if sum(pad_size) > 0 else nn.Identity()
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm_attn = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
         self.attn = Attention2D(
-            input_size,
+            pad_input_size,
             window_size,
             embed_dim,
             num_heads,
@@ -544,8 +586,7 @@ class SwinTransformerBlock2D(nn.Module):
             qk_scale=qk_scale,
             drop_attn=drop_attn,
             drop_proj=drop,
-            rpe=rpe,
-            rpe_dist=rpe_dist,
+            rpe_mode=rpe_mode,
             shift=shift,
         )
         self.norm_proj = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
@@ -556,6 +597,33 @@ class SwinTransformerBlock2D(nn.Module):
         self.in_channels = embed_dim
         self.out_channels = embed_dim
 
+    def _create_padding_mask(
+        self, input_size: Tuple[int, int], window_size: Tuple[int, int], pad_size: Tuple[int, int]
+    ) -> torch.Tensor:
+        id_map = torch.zeros((1, input_size[0], input_size[1], 1))
+        cnt = 1
+        for h, p in itertools.product(range(input_size[0]), range(1, pad_size[0] + 1)):
+            id_map[:, h, -p, :] = cnt
+            cnt += 1
+        for w, p in itertools.product(range(input_size[1]), range(1, pad_size[1] + 1)):
+            id_map[:, -p, w, :] = cnt
+            cnt += 1
+        id_map = id_map.view(1, -1, 1).contiguous()
+        id_windows = einops.rearrange(
+            (id_map),
+            "b (hdm hm wdm wm) c -> (b hdm wdm) (hm wm) c",
+            hdm=input_size[0] // window_size[0],
+            wdm=input_size[1] // window_size[1],
+            hm=window_size[0],
+            wm=window_size[1],
+        ).squeeze(-1)
+        id_diff_windows = id_windows.unsqueeze(1) - id_windows.unsqueeze(2)
+        id_diff_windows = einops.rearrange(
+            id_diff_windows,
+            "bw ... -> () bw () ...",
+        )
+        return id_diff_windows.masked_fill(id_diff_windows != 0, float(1)).masked_fill(id_diff_windows == 0, float(0.0))
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Args:
@@ -565,9 +633,17 @@ class SwinTransformerBlock2D(nn.Module):
             torch.Tensor: Output tensor (B, N, C).
         """
 
+        x = self.rearrange_input(x)
+        x = self.pad(x)
+        x = self.rearrange_output(x)
+
         skip = x
-        x = self.drop_path(self.attn(x)) + skip
+        x = self.drop_path(self.attn(x, self.padding_mask)) + skip
         x = self.norm_attn(x)
+
+        x = self.rearrange_pad_input(x)
+        x = x[..., : self.input_size[0], : self.input_size[1]]
+        x = self.rearrange_output(x)
 
         skip = x
         x = self.drop_path(self.proj(x)) + skip
@@ -595,19 +671,17 @@ class SwinTransformerStage2D(nn.Module):
         patch_window_size (Tuple[int, int]): Size of the patch window (height, width).
         block_window_size (Tuple[int, int]): Size of the block window (height, width).
         num_heads (int): Number of attention heads.
-        mlp_ratio (float, optional): Ratio of MLP hidden dim to embedding dim. Defaults to 4.0.
-        qkv_bias (bool, optional): Whether to add bias to the QKV linear layer. Defaults to False.
-        qk_scale (Optional[float], optional): Scaling factor for QK attention. Defaults to None.
-        drop (float, optional): Dropout rate. Defaults to 0.0.
-        drop_attn (float, optional): Attention dropout rate. Defaults to 0.0.
-        drop_path (Optional[List[float]], optional): Stochastic depth rate. Defaults to None.
-        rpe (bool, optional): Whether to use relative position encoding. Defaults to True.
-        rpe_dist (Optional[Tuple[int, int]], optional): Maximum distance for relative position encoding.
-            Defaults to None.
-        act_layer (Type[nn.Module], optional): Activation layer type. Defaults to nn.GELU.
-        norm_layer_pre_block (Optional[Type[nn.Module]], optional): Normalisation in patch. Defaults to nn.LayerNorm.
-        norm_layer_block (Optional[Type[nn.Module]], optional): Normalisation in the block. Defaults to nn.LayerNorm.
-        patch_mode (PatchMode): Patch embedding mode. Defaults to PatchMode.CONCATENATE.
+        mlp_ratio (float, optional): Ratio of MLP hidden dim to embedding dim.
+        qkv_bias (bool, optional): Whether to add bias to the QKV linear layer.
+        qk_scale (Optional[float], optional): Scaling factor for QK attention.
+        drop (float, optional): Dropout rate.
+        drop_attn (float, optional): Attention dropout rate.
+        drop_path (Optional[List[float]], optional): Stochastic depth rate.
+        rpe_mode (RelativePositionalEmbeddingMode): Whether to use relative position encoding.
+        act_layer (Type[nn.Module], optional): Activation layer type.
+        norm_layer_pre_block (Optional[Type[nn.Module]], optional): Normalisation in patch.
+        norm_layer_block (Optional[Type[nn.Module]], optional): Normalisation in the block.
+        patch_mode (PatchMode): Patch embedding mode.
     """
 
     def __init__(
@@ -629,14 +703,13 @@ class SwinTransformerStage2D(nn.Module):
         drop: float = 0.0,
         drop_attn: float = 0.0,
         drop_path: Optional[List[float]] = None,
-        rpe: bool = True,
-        rpe_dist: Optional[Tuple[int, int]] = None,
         act_layer: Type[nn.Module] = nn.GELU,
         # Normalisation parameters
         norm_layer_pre_block: Optional[Type[nn.Module]] = nn.LayerNorm,
         norm_layer_block: Optional[Type[nn.Module]] = nn.LayerNorm,
-        # Mode parameters 
-        patch_mode: PatchMode = PatchMode.CONCATENATE, 
+        # Mode parameters
+        patch_mode: PatchMode = PatchMode.CONCATENATE,
+        rpe_mode: RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS,
     ) -> None:
         super().__init__()
 
@@ -679,8 +752,7 @@ class SwinTransformerStage2D(nn.Module):
                 drop=drop,
                 drop_attn=drop_attn,
                 drop_path=0.0 if drop_path is None else drop_path[i],
-                rpe=rpe,
-                rpe_dist=rpe_dist,
+                rpe_mode=rpe_mode,
                 act_layer=act_layer,
                 norm_layer=norm_layer_block,
                 shift=i % 2 == 1,
@@ -728,9 +800,9 @@ class SwinTransformerConfig2D:
         drop (float): Dropout rate.
         drop_attn (float): Attention dropout rate.
         drop_path (float): Stochastic depth rate.
-        rpe (bool): Whether to use relative position encoding.
         act_layer (type): Activation layer type.
         patch_mode (Optional[List[PatchMode]]): Patch embedding mode.
+        rpe_mode (RelativePositonalEmbeddingMode): Whether to use relative position encoding.
     """
 
     # Stage parameters
@@ -749,10 +821,10 @@ class SwinTransformerConfig2D:
     drop: float = 0.0
     drop_attn: float = 0.0
     drop_path: float = 0.1
-    rpe: bool = True
     act_layer: Type[nn.Module] = nn.GELU
     # Mode parameters
     patch_mode: Optional[List[PatchMode]] = None
+    rpe_mode: RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS
 
     def __post_init__(self):
         """
@@ -772,9 +844,10 @@ class SwinTransformerConfig2D:
         if not len(self.num_blocks) > 0:
             raise ValueError("At least one stage must be defined.")
 
-        print("Patch mode: {}".format(self.patch_mode))
         if self.patch_mode is None:
             self.patch_mode = [PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * (len(self.num_blocks) - 1)
+        else:
+            assert len(self.patch_mode) == len(self.num_blocks), "Length of patch_mode must be equal to num_blocks."
 
 
 class SwinTransformer2D(nn.Module):
@@ -792,7 +865,7 @@ class SwinTransformer2D(nn.Module):
 
     def __init__(self, config: SwinTransformerConfig2D) -> None:
         super().__init__()
-        
+
         assert config.patch_mode is not None, "Should not be None"
 
         self.stages = nn.ModuleDict()
@@ -820,11 +893,11 @@ class SwinTransformer2D(nn.Module):
                 drop=config.drop,
                 drop_attn=config.drop_attn,
                 drop_path=stochastic_depth_decay[sum(config.num_blocks[:i]) : sum(config.num_blocks[: i + 1])],
-                rpe=config.rpe,
                 act_layer=config.act_layer,
                 norm_layer_pre_block=norm_layer_pre_block,
                 norm_layer_block=nn.LayerNorm,
                 patch_mode=config.patch_mode[i],
+                rpe_mode=config.rpe_mode,
             )
             input_size = (input_size[0] // pws[0], input_size[1] // pws[1])
             out_channels = self.stages[name].out_channels

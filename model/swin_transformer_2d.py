@@ -333,8 +333,7 @@ class Attention2D(nn.Module):
 
         # Multi-head self-attention
         self.num_heads = num_heads
-        self.scale = qk_scale or embed_dim**-0.5
-        self.inv_embed_dim = 1.0 / math.sqrt(embed_dim // num_heads)
+        self.scale = qk_scale or (embed_dim // num_heads) ** -0.5
 
         self.proj_qkv = nn.Linear(embed_dim, embed_dim * 3, bias=qkv_bias)
         self.proj = nn.Linear(embed_dim, embed_dim)
@@ -408,7 +407,6 @@ class Attention2D(nn.Module):
         x = self.to_windows(x)
         qkv = self.to_qkv(self.proj_qkv(x))
         q, k, v = qkv[0], qkv[1], qkv[2]
-        q = q * self.scale
         s = torch.einsum("b h n c, b h m c -> b h n m", q, k)
 
         if self.bias_mode:
@@ -428,7 +426,7 @@ class Attention2D(nn.Module):
             s = s + torch.einsum("b h n c, n m h c -> b h n m", q, k_embedding)
             s = s + torch.einsum("b h n c, n m h c -> b h n m", k, q_embedding)
 
-        s = s * self.inv_embed_dim
+        s = s * self.scale
 
         if self.shift:
             s = self.to_broadcast_score(s) + self.to_broadcast_mask(self.shift_mask)
@@ -562,22 +560,13 @@ class SwinTransformerBlock2D(nn.Module):
             window_size[1] - input_size[1] % window_size[1] if input_size[1] % window_size[1] != 0 else 0,
         )
         pad_input_size = (input_size[0] + padding_size[0], input_size[1] + padding_size[1])
-        self.pad = (
-            nn.ConstantPad2d((0, padding_size[1], 0, padding_size[0]), 0) if sum(padding_size) > 0 else nn.Identity()
-        )
+        self.pad = nn.ConstantPad2d((0, padding_size[1], 0, padding_size[0]), 0)
         self.register_buffer("padding_mask", torch.tensor(0.0))  # to cleanly move to device
         self.padding_mask = self._create_padding_mask(pad_input_size, window_size, padding_size)
-        self.rearrange_input = (
-            elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
-            if sum(padding_size) > 0
-            else nn.Identity()
-        )
-        self.rearrange_pad_input = (
-            elt.Rearrange("b (h w) c -> b c h w", h=pad_input_size[0], w=pad_input_size[1])
-            if sum(padding_size) > 0
-            else nn.Identity()
-        )
-        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c") if sum(padding_size) > 0 else nn.Identity()
+        self.rearrange_input = elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
+        self.rearrange_pad_input = elt.Rearrange("b (h w) c -> b c h w", h=pad_input_size[0], w=pad_input_size[1])
+        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c")
+        self.use_padding = padding_size != (0, 0)
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm_attn = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
@@ -638,17 +627,19 @@ class SwinTransformerBlock2D(nn.Module):
             torch.Tensor: Output tensor (B, N, C).
         """
 
-        x = self.rearrange_input(x)
-        x = self.pad(x)
-        x = self.rearrange_output(x)
+        if self.use_padding:
+            x = self.rearrange_input(x)
+            x = self.pad(x)
+            x = self.rearrange_output(x)
 
         skip = x
         x = self.drop_path(self.attn(x, self.padding_mask)) + skip
         x = self.norm_attn(x)
 
-        x = self.rearrange_pad_input(x)
-        x = x[..., : self.input_size[0], : self.input_size[1]]
-        x = self.rearrange_output(x)
+        if self.use_padding:
+            x = self.rearrange_pad_input(x)
+            x = x[..., : self.input_size[0], : self.input_size[1]]
+            x = self.rearrange_output(x)
 
         skip = x
         x = self.drop_path(self.proj(x)) + skip
@@ -745,22 +736,24 @@ class SwinTransformerStage2D(nn.Module):
         input_size = (input_size[0] // patch_window_size[0], input_size[1] // patch_window_size[1])
         self.blocks = nn.ModuleList()
         for i in range(num_blocks):
-            self.blocks.append(SwinTransformerBlock2D(
-                input_size,
-                self.patch.out_channels,
-                num_heads,
-                block_window_size,
-                mlp_ratio=mlp_ratio,
-                qkv_bias=qkv_bias,
-                qk_scale=qk_scale,
-                drop=drop,
-                drop_attn=drop_attn,
-                drop_path=0.0 if drop_path is None else drop_path[i],
-                rpe_mode=rpe_mode,
-                act_layer=act_layer,
-                norm_layer=norm_layer_block,
-                shift=i % 2 == 1,
-            ))
+            self.blocks.append(
+                SwinTransformerBlock2D(
+                    input_size,
+                    self.patch.out_channels,
+                    num_heads,
+                    block_window_size,
+                    mlp_ratio=mlp_ratio,
+                    qkv_bias=qkv_bias,
+                    qk_scale=qk_scale,
+                    drop=drop,
+                    drop_attn=drop_attn,
+                    drop_path=0.0 if drop_path is None else drop_path[i],
+                    rpe_mode=rpe_mode,
+                    act_layer=act_layer,
+                    norm_layer=norm_layer_block,
+                    shift=i % 2 == 1,
+                )
+            )
 
         self.input_size = (input_size[0] * patch_window_size[0], input_size[1] * patch_window_size[1])
         self.output_size = input_size
@@ -777,7 +770,7 @@ class SwinTransformerStage2D(nn.Module):
         """
 
         x = self.patch(x)
-        for block in self.blocks.values():
+        for block in self.blocks:
             x = block(x)
         return x
 
@@ -906,14 +899,14 @@ class SwinTransformer2D(nn.Module):
             out_channels = stage.out_channels
             self.stages.append(stage)
 
-        self.input_size = [s.input_size for s in self.stages.values()]
-        self.output_size = [s.output_size for s in self.stages.values()]
-        self.in_channels = [s.in_channels for s in self.stages.values()]
-        self.out_channels = [s.out_channels for s in self.stages.values()]
+        self.input_size = [s.input_size for s in self.stages]
+        self.output_size = [s.output_size for s in self.stages]
+        self.in_channels = [s.in_channels for s in self.stages]
+        self.out_channels = [s.out_channels for s in self.stages]
 
     def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
         out = []
-        for stage in self.stages.values():
+        for stage in self.stages:
             x = stage(x)
             out.append(x)
         return out

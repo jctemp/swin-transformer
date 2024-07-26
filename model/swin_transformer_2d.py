@@ -555,25 +555,27 @@ class SwinTransformerBlock2D(nn.Module):
         ), f"Embedding dimension {embed_dim} must be divisible by the number of heads {num_heads}"
 
         # compute padding for input
-        pad_size = (
+        padding_size = (
             window_size[0] - input_size[0] % window_size[0] if input_size[0] % window_size[0] != 0 else 0,
             window_size[1] - input_size[1] % window_size[1] if input_size[1] % window_size[1] != 0 else 0,
         )
-        pad_input_size = (input_size[0] + pad_size[0], input_size[1] + pad_size[1])
-        self.pad = nn.ConstantPad2d((0, pad_size[1], 0, pad_size[0]), 0) if sum(pad_size) > 0 else nn.Identity()
+        pad_input_size = (input_size[0] + padding_size[0], input_size[1] + padding_size[1])
+        self.pad = (
+            nn.ConstantPad2d((0, padding_size[1], 0, padding_size[0]), 0) if sum(padding_size) > 0 else nn.Identity()
+        )
         self.register_buffer("padding_mask", torch.tensor(0.0))  # to cleanly move to device
-        self.padding_mask = self._create_padding_mask(pad_input_size, window_size, pad_size)
+        self.padding_mask = self._create_padding_mask(pad_input_size, window_size, padding_size)
         self.rearrange_input = (
             elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
-            if sum(pad_size) > 0
+            if sum(padding_size) > 0
             else nn.Identity()
         )
         self.rearrange_pad_input = (
             elt.Rearrange("b (h w) c -> b c h w", h=pad_input_size[0], w=pad_input_size[1])
-            if sum(pad_size) > 0
+            if sum(padding_size) > 0
             else nn.Identity()
         )
-        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c") if sum(pad_size) > 0 else nn.Identity()
+        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c") if sum(padding_size) > 0 else nn.Identity()
 
         self.drop_path = DropPath(drop_path) if drop_path > 0.0 else nn.Identity()
         self.norm_attn = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
@@ -596,6 +598,7 @@ class SwinTransformerBlock2D(nn.Module):
         self.output_size = input_size
         self.in_channels = embed_dim
         self.out_channels = embed_dim
+        self.padding_size = padding_size
 
     def _create_padding_mask(
         self, input_size: Tuple[int, int], window_size: Tuple[int, int], pad_size: Tuple[int, int]

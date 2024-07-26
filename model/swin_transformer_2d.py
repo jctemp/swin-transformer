@@ -334,7 +334,7 @@ class Attention2D(nn.Module):
         # Multi-head self-attention
         self.num_heads = num_heads
         self.scale = qk_scale or embed_dim**-0.5
-        self.inv_embed_dim = 1.0 / math.sqrt(embed_dim)
+        self.inv_embed_dim = 1.0 / math.sqrt(embed_dim // num_heads)
 
         self.proj_qkv = nn.Linear(embed_dim, embed_dim * 3, bias=qkv_bias)
         self.proj = nn.Linear(embed_dim, embed_dim)

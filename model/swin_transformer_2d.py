@@ -1,3 +1,4 @@
+import enum
 import itertools
 import math
 from typing import List, Optional, Tuple, Type
@@ -8,6 +9,11 @@ import torch
 import torch.nn as nn
 from attr import dataclass
 from timm.layers import DropPath
+
+
+class PatchMode(enum.Enum):
+    CONCATENATE = "concatenate"
+    CONVOLUTION = "convolution"
 
 
 class PatchEmbedding2D(nn.Module):
@@ -27,6 +33,7 @@ class PatchEmbedding2D(nn.Module):
         in_channels (int): Number of input channels.
         embed_dim (int): Embedding dimension.
         norm_layer (Optional[Type[nn.Module]]): Normalisation layer type.
+        mode (PatchMode): Patch embedding mode.
     """
 
     def __init__(
@@ -36,6 +43,7 @@ class PatchEmbedding2D(nn.Module):
         in_channels: int,
         embed_dim: int,
         norm_layer: Optional[Type[nn.Module]] = None,
+        mode: PatchMode = PatchMode.CONVOLUTION,
     ) -> None:
         super().__init__()
         assert (
@@ -43,10 +51,21 @@ class PatchEmbedding2D(nn.Module):
         ), f"Input size {input_size} must be divisible by the patch size {patch_size}"
 
         # Output transformation
-        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c")
+        self.rearrange_input = (
+            elt.Rearrange("b c (hdm hm) (wdm wm) -> b (hdm wdm) (hm wm c)", hm=patch_size[0], wm=patch_size[1])
+            if mode == PatchMode.CONCATENATE
+            else nn.Identity()
+        )
+        self.rearrange_output = (
+            elt.Rearrange("b c h w -> b (h w) c") if mode == PatchMode.CONVOLUTION else nn.Identity()
+        )
 
         # Patch embedding
-        self.proj = nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+        self.proj = (
+            nn.Linear(patch_size[0] * patch_size[1] * in_channels, embed_dim)
+            if mode == PatchMode.CONCATENATE
+            else nn.Conv2d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+        )
         self.norm = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
 
         # Auxilliary
@@ -64,6 +83,7 @@ class PatchEmbedding2D(nn.Module):
         Returns:
             torch.Tensor: Output tensor (B, N, C).
         """
+        x = self.rearrange_input(x)
         x = self.proj(x)
         x = self.rearrange_output(x)
         x = self.norm(x)
@@ -85,6 +105,7 @@ class PatchMerging2D(nn.Module):
         merge_size (Tuple[int, int]): Size of the merged patch (height, width).
         embed_dim (int): Embedding dimension.
         norm_layer (Optional[Type[nn.Module]]): Normalisation layer type.
+        mode (PatchMode): Patch embedding mode.
     """
 
     def __init__(
@@ -93,6 +114,7 @@ class PatchMerging2D(nn.Module):
         merge_size: Tuple[int, int],
         embed_dim: int,
         norm_layer: Optional[Type[nn.Module]] = nn.LayerNorm,
+        mode: PatchMode = PatchMode.CONCATENATE,
     ) -> None:
         super().__init__()
         assert (
@@ -100,13 +122,29 @@ class PatchMerging2D(nn.Module):
         ), f"Input size {input_size} must be divisible by the merge size {merge_size}"
 
         # Input/Output transformations
-        self.rearrange_input = elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
-        self.rearrange_output = elt.Rearrange("b c h w -> b (h w) c")
+        self.rearrange_input = (
+            elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])
+            if mode == PatchMode.CONVOLUTION
+            else elt.Rearrange(
+                "b (hdm hm wdm wm) c -> b (hdm wdm) (hm wm c)",
+                hdm=input_size[0] // merge_size[0],
+                wdm=input_size[1] // merge_size[1],
+                hm=merge_size[0],
+                wm=merge_size[1],
+            )
+        )
+        self.rearrange_output = (
+            elt.Rearrange("b c h w -> b (h w) c") if mode == PatchMode.CONVOLUTION else nn.Identity()
+        )
 
         merge_dim = merge_size[0] * merge_size[1] * embed_dim
 
         # Projection and Normalisation
-        self.proj = nn.Conv2d(embed_dim, merge_dim // 2, merge_size, merge_size)
+        self.proj = (
+            nn.Conv2d(embed_dim, merge_dim // 2, merge_size, merge_size)
+            if mode == PatchMode.CONVOLUTION
+            else nn.Linear(merge_dim, merge_dim // 2)
+        )
         self.norm = norm_layer(merge_dim // 2) if norm_layer is not None else nn.Identity()
 
         # Auxilliary
@@ -444,9 +482,6 @@ class SwinTransformerBlock2D(nn.Module):
     The Swin Transformer block consists of a multi-head self-attention module followed by a feed-forward module. The
     output of the feed-forward module is added to the input tensor and passed through a residual connection. It uses
     drop path for stochastic depth.
-
-
-    TODO: Use a post-normalisation strategy like in Swin Transformer V2.
 
     References:
         Swin Transformer: Hierarchical Vision Transformer using Shifted Windows - Li et al.

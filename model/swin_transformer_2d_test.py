@@ -5,6 +5,7 @@ from .swin_transformer_2d import (
     Attention2D,
     PatchEmbedding2D,
     PatchMerging2D,
+    PatchMode,
     SwinTransformer2D,
     SwinTransformerConfig2D,
     WindowShift2D,
@@ -18,9 +19,24 @@ def test_patch_embedding_2d():
     patch_size = (16, 16)
     embed_dim = 3
     embed_dim = 512
-
     x = torch.randn((2, embed_dim, *input_size)).to(DEVICE)
-    pe = torch.jit.script(PatchEmbedding2D(input_size, patch_size, embed_dim, embed_dim, nn.LayerNorm).to(DEVICE))
+
+    patch_mode = PatchMode.CONCATENATE
+    pe = torch.jit.script(
+        PatchEmbedding2D(input_size, patch_size, embed_dim, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE)
+    )
+    pe = pe(x)  # type: ignore
+
+    assert tuple(pe.shape) == (  # type: ignore
+        2,
+        int(torch.prod(torch.tensor(input_size)) / torch.prod(torch.tensor(patch_size))),
+        embed_dim,
+    )
+
+    patch_mode = PatchMode.CONVOLUTION
+    pe = torch.jit.script(
+        PatchEmbedding2D(input_size, patch_size, embed_dim, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE)
+    )
     pe = pe(x)  # type: ignore
 
     assert tuple(pe.shape) == (  # type: ignore
@@ -34,9 +50,16 @@ def test_patch_merging_2d():
     input_size = (4, 6)
     merge_size = (2, 3)
     embed_dim = 12
-
     x = torch.randn((2, input_size[0] * input_size[1], embed_dim)).to(DEVICE)
-    pm = torch.jit.script(PatchMerging2D(input_size, merge_size, embed_dim, nn.LayerNorm).to(DEVICE))
+
+    patch_mode = PatchMode.CONCATENATE
+    pm = torch.jit.script(PatchMerging2D(input_size, merge_size, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE))
+    pm = pm(x)  # type: ignore
+
+    assert tuple(pm.shape) == ((2, 2 * 2, 2 * 3 * 6))  # type: ignore
+    
+    patch_mode = PatchMode.CONVOLUTION
+    pm = torch.jit.script(PatchMerging2D(input_size, merge_size, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE))
     pm = pm(x)  # type: ignore
 
     assert tuple(pm.shape) == ((2, 2 * 2, 2 * 3 * 6))  # type: ignore

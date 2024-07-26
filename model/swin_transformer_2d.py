@@ -428,6 +428,8 @@ class Attention2D(nn.Module):
             s = s + torch.einsum("b h n c, n m h c -> b h n m", q, k_embedding)
             s = s + torch.einsum("b h n c, n m h c -> b h n m", k, q_embedding)
 
+        s = s * self.inv_embed_dim
+
         if self.shift:
             s = self.to_broadcast_score(s) + self.to_broadcast_mask(self.shift_mask)
             s = self.to_merged_score(s)

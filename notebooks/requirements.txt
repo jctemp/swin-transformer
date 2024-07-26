@@ -9,3 +9,4 @@ torchinfo==1.8.0
 lightning==2.3.3
 wandb==0.17.4
 matplotlib==3.9.1
+seaborn==0.13.2

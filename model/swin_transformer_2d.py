@@ -7,7 +7,7 @@ import einops
 import einops.layers.torch as elt
 import torch
 import torch.nn as nn
-from attr import dataclass
+from dataclasses import dataclass
 from timm.layers import DropPath
 
 
@@ -607,6 +607,7 @@ class SwinTransformerStage2D(nn.Module):
         act_layer (Type[nn.Module], optional): Activation layer type. Defaults to nn.GELU.
         norm_layer_pre_block (Optional[Type[nn.Module]], optional): Normalisation in patch. Defaults to nn.LayerNorm.
         norm_layer_block (Optional[Type[nn.Module]], optional): Normalisation in the block. Defaults to nn.LayerNorm.
+        patch_mode (PatchMode): Patch embedding mode. Defaults to PatchMode.CONCATENATE.
     """
 
     def __init__(
@@ -634,6 +635,8 @@ class SwinTransformerStage2D(nn.Module):
         # Normalisation parameters
         norm_layer_pre_block: Optional[Type[nn.Module]] = nn.LayerNorm,
         norm_layer_block: Optional[Type[nn.Module]] = nn.LayerNorm,
+        # Mode parameters 
+        patch_mode: PatchMode = PatchMode.CONCATENATE, 
     ) -> None:
         super().__init__()
 
@@ -648,6 +651,7 @@ class SwinTransformerStage2D(nn.Module):
                 in_channels=in_channels,
                 embed_dim=embed_dim,
                 norm_layer=norm_layer_pre_block,
+                mode=patch_mode,
             )
         else:
             patch_config = dict(
@@ -655,6 +659,7 @@ class SwinTransformerStage2D(nn.Module):
                 merge_size=patch_window_size,
                 embed_dim=embed_dim,
                 norm_layer=norm_layer_pre_block,
+                mode=patch_mode,
             )
             in_channels = embed_dim
         self.patch = patch_module(**patch_config)  # type: ignore
@@ -725,6 +730,7 @@ class SwinTransformerConfig2D:
         drop_path (float): Stochastic depth rate.
         rpe (bool): Whether to use relative position encoding.
         act_layer (type): Activation layer type.
+        patch_mode (Optional[List[PatchMode]]): Patch embedding mode.
     """
 
     # Stage parameters
@@ -745,6 +751,8 @@ class SwinTransformerConfig2D:
     drop_path: float = 0.1
     rpe: bool = True
     act_layer: Type[nn.Module] = nn.GELU
+    # Mode parameters
+    patch_mode: Optional[List[PatchMode]] = None
 
     def __post_init__(self):
         """
@@ -764,6 +772,10 @@ class SwinTransformerConfig2D:
         if not len(self.num_blocks) > 0:
             raise ValueError("At least one stage must be defined.")
 
+        print("Patch mode: {}".format(self.patch_mode))
+        if self.patch_mode is None:
+            self.patch_mode = [PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * (len(self.num_blocks) - 1)
+
 
 class SwinTransformer2D(nn.Module):
     """SwinTransformer2D
@@ -780,6 +792,8 @@ class SwinTransformer2D(nn.Module):
 
     def __init__(self, config: SwinTransformerConfig2D) -> None:
         super().__init__()
+        
+        assert config.patch_mode is not None, "Should not be None"
 
         self.stages = nn.ModuleDict()
         stochastic_depth_decay = [x.item() for x in torch.linspace(0, config.drop_path, sum(config.num_blocks))]
@@ -810,6 +824,7 @@ class SwinTransformer2D(nn.Module):
                 act_layer=config.act_layer,
                 norm_layer_pre_block=norm_layer_pre_block,
                 norm_layer_block=nn.LayerNorm,
+                patch_mode=config.patch_mode[i],
             )
             input_size = (input_size[0] // pws[0], input_size[1] // pws[1])
             out_channels = self.stages[name].out_channels

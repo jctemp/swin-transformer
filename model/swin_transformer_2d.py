@@ -741,10 +741,9 @@ class SwinTransformerStage2D(nn.Module):
         self.patch = patch_module(**patch_config)  # type: ignore
 
         input_size = (input_size[0] // patch_window_size[0], input_size[1] // patch_window_size[1])
-        self.blocks = nn.ModuleDict()
+        self.blocks = nn.ModuleList()
         for i in range(num_blocks):
-            name = f"block_{i}"
-            self.blocks[name] = SwinTransformerBlock2D(
+            self.blocks.append(SwinTransformerBlock2D(
                 input_size,
                 self.patch.out_channels,
                 num_heads,
@@ -759,7 +758,7 @@ class SwinTransformerStage2D(nn.Module):
                 act_layer=act_layer,
                 norm_layer=norm_layer_block,
                 shift=i % 2 == 1,
-            )
+            ))
 
         self.input_size = (input_size[0] * patch_window_size[0], input_size[1] * patch_window_size[1])
         self.output_size = input_size
@@ -871,17 +870,16 @@ class SwinTransformer2D(nn.Module):
 
         assert config.patch_mode is not None, "Should not be None"
 
-        self.stages = nn.ModuleDict()
+        self.stages = nn.ModuleList()
         stochastic_depth_decay = [x.item() for x in torch.linspace(0, config.drop_path, sum(config.num_blocks))]
         out_channels = config.embed_dim
         input_size = config.input_size
         for i, (nb, pws, bws, nh) in enumerate(
             zip(config.num_blocks, config.patch_window_size, config.block_window_size, config.num_heads)
         ):
-            name = f"stage_{i}"
             patch_module = PatchEmbedding2D if i == 0 else PatchMerging2D
             norm_layer_pre_block = None if i == 0 else nn.LayerNorm
-            self.stages[name] = SwinTransformerStage2D(
+            stage = SwinTransformerStage2D(
                 input_size,
                 config.in_channels,
                 out_channels,
@@ -903,7 +901,8 @@ class SwinTransformer2D(nn.Module):
                 rpe_mode=config.rpe_mode,
             )
             input_size = (input_size[0] // pws[0], input_size[1] // pws[1])
-            out_channels = self.stages[name].out_channels
+            out_channels = stage.out_channels
+            self.stages.append(stage)
 
         self.input_size = [s.input_size for s in self.stages.values()]
         self.output_size = [s.output_size for s in self.stages.values()]

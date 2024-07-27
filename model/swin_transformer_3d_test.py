@@ -5,13 +5,14 @@ from .swin_transformer_3d import (
     Attention3D,
     PatchEmbedding3D,
     PatchMerging3D,
+    PatchMode,
+    RelativePositionalEmeddingMode,
     SwinTransformer3D,
     SwinTransformerConfig3D,
     WindowShift3D,
 )
 
-# DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-DEVICE = torch.device("cpu")
+DEVICE = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
 
 
 def test_patch_embedding_3d():
@@ -21,7 +22,23 @@ def test_patch_embedding_3d():
     embed_dim = 512
 
     x = torch.randn((2, in_channels, *input_size)).to(DEVICE)
-    pe = torch.jit.script(PatchEmbedding3D(input_size, patch_size, in_channels, embed_dim, nn.LayerNorm).to(DEVICE))
+
+    patch_mode = PatchMode.CONCATENATE
+    pe = torch.jit.script(
+        PatchEmbedding3D(input_size, patch_size, in_channels, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE)
+    )
+    y = pe(x)  # type: ignore
+
+    assert tuple(y.shape) == (  # type: ignore
+        2,
+        int(torch.prod(torch.tensor(input_size)) / torch.prod(torch.tensor(patch_size))),
+        embed_dim,
+    )
+
+    patch_mode = PatchMode.CONVOLUTION
+    pe = torch.jit.script(
+        PatchEmbedding3D(input_size, patch_size, in_channels, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE)
+    )
     y = pe(x)  # type: ignore
 
     assert tuple(y.shape) == (  # type: ignore
@@ -37,7 +54,15 @@ def test_patch_merging_3d():
     embed_dim = 12
 
     x = torch.randn((2, input_size[0] * input_size[1] * input_size[2], embed_dim)).to(DEVICE)
-    pm = torch.jit.script(PatchMerging3D(input_size, merge_size, embed_dim, nn.LayerNorm).to(DEVICE))
+
+    patch_mode = PatchMode.CONCATENATE
+    pm = torch.jit.script(PatchMerging3D(input_size, merge_size, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE))
+    y = pm(x)  # type: ignore
+
+    assert tuple(y.shape) == ((2, 2 * 2 * 2, embed_dim * 2 * 3))  # type: ignore
+
+    patch_mode = PatchMode.CONVOLUTION
+    pm = torch.jit.script(PatchMerging3D(input_size, merge_size, embed_dim, nn.LayerNorm, patch_mode).to(DEVICE))
     y = pm(x)  # type: ignore
 
     assert tuple(y.shape) == ((2, 2 * 2 * 2, embed_dim * 2 * 3))  # type: ignore
@@ -61,31 +86,34 @@ def test_attention_3d():
     num_heads = 4
 
     x = torch.randn((2, input_size[0] * input_size[1] * input_size[2], embed_dim)).to(DEVICE)
-    attn = torch.jit.script(
-        Attention3D(
-            input_size,
-            window_size,
-            embed_dim,
-            num_heads,
-            qkv_bias=True,
-            qk_scale=num_heads**-0.5,
-            drop_attn=0.0,
-            drop_proj=0.0,
-            rpe=True,
-            rpe_dist=(
-                input_size[0] // window_size[0],
-                input_size[1] // window_size[1],
-                input_size[2] // window_size[2],
-            ),
-            shift=True,
-        ).to(DEVICE)
-    )
-    x_out = attn(x)  # type: ignore
-    a = attn.attn_weights  # type: ignore
-    m = attn.shift_mask  # type: ignore
 
-    assert x_out.shape == x.shape  # type: ignore
-    assert torch.equal(a[:18, 0].masked_fill_(a[:18, 0] != 0, 1), m.masked_fill_(m == 0, 1).masked_fill_(m == -1e9, 0))
+    for mode in [
+        RelativePositionalEmeddingMode.BIAS,
+        RelativePositionalEmeddingMode.CONTEXT,
+        RelativePositionalEmeddingMode.NONE,
+    ]:
+        attn = torch.jit.script(
+            Attention3D(
+                input_size,
+                window_size,
+                embed_dim,
+                num_heads,
+                qkv_bias=True,
+                qk_scale=num_heads**-0.5,
+                drop_attn=0.0,
+                drop_proj=0.0,
+                rpe_mode=mode,
+                shift=True,
+            ).to(DEVICE)
+        )
+        x_out = attn(x)  # type: ignore
+        a = attn.attn_weights  # type: ignore
+        m = attn.shift_mask  # type: ignore
+
+        assert x_out.shape == x.shape  # type: ignore
+        assert torch.equal(
+            a[:18, 0].masked_fill_(a[:18, 0] != 0, 1), m.masked_fill_(m == 0, 1).masked_fill_(m == -1e9, 0)
+        )
 
 
 def test_swin_transformer_3d():
@@ -113,8 +141,9 @@ def test_swin_transformer_3d():
         drop=0.0,
         drop_attn=0.0,
         drop_path=0.0,
-        rpe=True,
         act_layer=nn.GELU,
+        patch_mode=[PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * (len(num_blocks) - 1),
+        rpe_mode=RelativePositionalEmeddingMode.CONTEXT,
     )
 
     model = torch.jit.script(SwinTransformer3D(config).to(DEVICE))

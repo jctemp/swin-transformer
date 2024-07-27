@@ -1,6 +1,5 @@
 import enum
 import itertools
-import math
 from typing import List, Optional, Tuple, Type
 
 import einops
@@ -14,6 +13,12 @@ from timm.layers import DropPath
 class PatchMode(enum.Enum):
     CONCATENATE = "concatenate"
     CONVOLUTION = "convolution"
+
+
+class RelativePositionalEmeddingMode(enum.Enum):
+    BIAS = "bias"
+    CONTEXT = "context"
+    NONE = "none"
 
 
 class PatchEmbedding2D(nn.Module):
@@ -211,12 +216,6 @@ class WindowShift2D(nn.Module):
         return x
 
 
-class RelativePositionalEmeddingMode(enum.Enum):
-    BIAS = "bias"
-    CONTEXT = "context"
-    NONE = "none"
-
-
 class Attention2D(nn.Module):
     """Attention2D
 
@@ -303,7 +302,7 @@ class Attention2D(nn.Module):
 
         self.reshape_embedding = (
             elt.Rearrange(
-                "h w nh -> nh h w" if self.bias_mode else "n m (nh c) -> n m nh c",
+                "n m nh -> nh n m" if self.bias_mode else "n m (nh c) -> n m nh c",
                 nh=num_heads,
             )
             if self.bias_mode or self.context_mode
@@ -560,7 +559,7 @@ class SwinTransformerBlock2D(nn.Module):
             window_size[1] - input_size[1] % window_size[1] if input_size[1] % window_size[1] != 0 else 0,
         )
         pad_input_size = (input_size[0] + padding_size[0], input_size[1] + padding_size[1])
-        self.pad = nn.ConstantPad2d((0, padding_size[1], 0, padding_size[0]), 0)
+        self.pad = nn.ConstantPad2d((0, padding_size[1], 0, padding_size[0]), 0.0)
         self.register_buffer("padding_mask", torch.tensor(0.0))  # to cleanly move to device
         self.padding_mask = self._create_padding_mask(pad_input_size, window_size, padding_size)
         self.rearrange_input = elt.Rearrange("b (h w) c -> b c h w", h=input_size[0], w=input_size[1])

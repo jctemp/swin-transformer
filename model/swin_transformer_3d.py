@@ -422,6 +422,7 @@ class Attention3D(nn.Module):
         Returns:
             torch.Tensor: Output tensor (B, N, C).
         """
+        
         if self.shift:
             x = self.shift_win(x)
         x = self.to_windows(x)
@@ -433,7 +434,6 @@ class Attention3D(nn.Module):
             assert self.indices is not None, "Indices must be created for bias mode."
             assert self.embedding_table is not None, "Embedding table must be created for bias mode."
             biases = self.embedding_table(self.indices).sum(0)
-            print(biases.shape)
             biases = self.reshape_embedding(biases)
             s = s + biases
         elif self.context_mode:
@@ -559,7 +559,7 @@ class SwinTransformerBlock3D(nn.Module):
             input_size[1] + padding_size[1],
             input_size[2] + padding_size[2],
         )
-        self.pad = nn.ConstantPad3d((0, padding_size[1], 0, padding_size[0], 0, padding_size[2]), 0.0)
+        self.pad = nn.ConstantPad3d((0, padding_size[2], 0, padding_size[1], 0, padding_size[0]), 0.0)
         self.register_buffer("padding_mask", torch.tensor(0.0))  # to cleanly move to device
         self.padding_mask = self._create_padding_mask(pad_input_size, window_size, padding_size)
         self.rearrange_input = elt.Rearrange(

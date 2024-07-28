@@ -1,6 +1,6 @@
 [project]
-name = "master-project"
-dynamic = ["version"]
+name = "swin-transformer"
+version = "2024.07.01"
 
 [tool.pytest.ini_options]
 minversion = "8.0"

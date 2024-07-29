@@ -107,4 +107,4 @@ The official implementation can be found at the following link: https://github.c
 
 ## Contact
 
-For any questions or feedback, please open an issue on GitHub or contact [Your Name] at [your.email@example.com].
+For any questions or feedback, please open an issue on GitHub or contact me.

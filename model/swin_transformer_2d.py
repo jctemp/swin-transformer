@@ -819,8 +819,8 @@ class SwinTransformerConfig2D:
     drop_path: float = 0.1
     act_layer: Type[nn.Module] = nn.GELU
     # Mode parameters
-    patch_mode: Optional[List[PatchMode]] = None
-    rpe_mode: RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS
+    patch_mode: Optional[List[PatchMode] | List[str]] = None
+    rpe_mode: str | RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS
 
     def __post_init__(self):
         """
@@ -843,7 +843,12 @@ class SwinTransformerConfig2D:
         if self.patch_mode is None:
             self.patch_mode = [PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * (len(self.num_blocks) - 1)
         else:
+            self.patch_mode = [PatchMode(str.lower(pm)) for pm in self.patch_mode if isinstance(pm, str)]        
             assert len(self.patch_mode) == len(self.num_blocks), "Length of patch_mode must be equal to num_blocks."
+            assert all(pm in PatchMode for pm in self.patch_mode), "Patch mode must be one of PatchMode."
+
+        if isinstance(self.rpe_mode, str):
+            self.rpe_mode = RelativePositionalEmeddingMode(str.lower(self.rpe_mode))
 
 
 class SwinTransformer2D(nn.Module):
@@ -861,8 +866,6 @@ class SwinTransformer2D(nn.Module):
 
     def __init__(self, config: SwinTransformerConfig2D) -> None:
         super().__init__()
-
-        assert config.patch_mode is not None, "Should not be None"
 
         self.stages = nn.ModuleList()
         stochastic_depth_decay = [x.item() for x in torch.linspace(0, config.drop_path, sum(config.num_blocks))]
@@ -891,8 +894,8 @@ class SwinTransformer2D(nn.Module):
                 act_layer=config.act_layer,
                 norm_layer_pre_block=norm_layer_pre_block,
                 norm_layer_block=nn.LayerNorm,
-                patch_mode=config.patch_mode[i],
-                rpe_mode=config.rpe_mode,
+                patch_mode=config.patch_mode[i], # type: ignore
+                rpe_mode=config.rpe_mode, # type: ignore
             )
             input_size = (input_size[0] // pws[0], input_size[1] // pws[1])
             out_channels = stage.out_channels

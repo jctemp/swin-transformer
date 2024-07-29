@@ -148,7 +148,7 @@ def test_attention_2d(device, input_size, window_size, embed_dim, num_heads, rpe
             drop=0.0,
             drop_attn=0.0,
             drop_path=0.0,
-            act_layer=nn.GELU,
+            act_layer=nn.GELU(),
             patch_mode=[PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * 2,
             rpe_mode=RelativePositionalEmeddingMode.CONTEXT,
         ),
@@ -166,7 +166,7 @@ def test_attention_2d(device, input_size, window_size, embed_dim, num_heads, rpe
             drop=0.1,
             drop_attn=0.1,
             drop_path=0.1,
-            act_layer=nn.GELU,
+            act_layer=nn.GELU(),
             patch_mode=[PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * 3,
             rpe_mode=RelativePositionalEmeddingMode.BIAS,
         ),
@@ -191,7 +191,6 @@ def test_swin_transformer_2d(device, config):
         assert not torch.isnan(xo).any(), f"Stage {i}: Output contains NaN values"
         assert not torch.isinf(xo).any(), f"Stage {i}: Output contains infinite values"
         dims *= 2 if i < len(config.num_blocks) - 1 else 1  # Double the dimensions except for the last stage
-
 
 if __name__ == "__main__":
     pytest.main([__file__])

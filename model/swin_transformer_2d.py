@@ -1,4 +1,3 @@
-import enum
 import itertools
 from typing import List, Optional, Tuple, Type
 
@@ -9,16 +8,7 @@ import torch.nn as nn
 from dataclasses import dataclass
 from timm.layers import DropPath
 
-
-class PatchMode(enum.Enum):
-    CONCATENATE = "concatenate"
-    CONVOLUTION = "convolution"
-
-
-class RelativePositionalEmeddingMode(enum.Enum):
-    BIAS = "bias"
-    CONTEXT = "context"
-    NONE = "none"
+from .swin_shared import PatchMode, RelativePositionalEmeddingMode, FeedForward
 
 
 class PatchEmbedding2D(nn.Module):
@@ -453,55 +443,6 @@ class Attention2D(nn.Module):
         return x
 
 
-class FeedForward2D(nn.Module):
-    """FeedForward2D
-
-    The feed-forward module for the Swin Transformer is a simple two-layer MLP with an activation function. It is used
-    to process the output of the multi-head self-attention module.
-
-    References:
-        Swin Transformer: Hierarchical Vision Transformer using Shifted Windows - Li et al.
-
-    Args:
-        in_channels (int): Number of input channels.
-        hidden_channels (int): Number of hidden channels.
-        out_channels (int): Number of output channels.
-        act_layer (Type[nn.Module], optional): Activation layer type. Defaults to nn.GELU.
-        norm_layer (Optional[Type[nn.Module]], optional): Normalisation layer type. Defaults to nn.LayerNorm.
-    """
-
-    def __init__(
-        self,
-        in_channels: int,
-        hidden_channels: int,
-        out_channels: int,
-        act_layer: Type[nn.Module] = nn.GELU,
-        norm_layer: Optional[Type[nn.Module]] = nn.LayerNorm,
-    ) -> None:
-        super().__init__()
-        self.fc1 = nn.Linear(in_channels, hidden_channels)
-        self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_channels, out_channels)
-        self.norm = norm_layer(out_channels) if norm_layer is not None else nn.Identity()
-
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x (torch.Tensor): Input tensor (B, N, C).
-
-        Returns:
-            (torch.Tensor): Output tensor (B, N, C).
-        """
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.fc2(x)
-        x = self.norm(x)
-        return x
-
-
 class SwinTransformerBlock2D(nn.Module):
     """SwinTransformerBlock2D
 
@@ -526,7 +467,7 @@ class SwinTransformerBlock2D(nn.Module):
         drop_path (float, optional): Stochastic depth rate.
         rpe_mode (RelativePositionalEmbeddingMode): Relative position encoding mode.
         shift (bool, optional): Whether to use shifted windows.
-        act_layer (Type[nn.Module], optional): Activation layer type.
+        act_layer (nn.Module): Activation layer type.
         norm_layer (Optional[Type[nn.Module]], optional): Normalisation layer type.
     """
 
@@ -544,7 +485,7 @@ class SwinTransformerBlock2D(nn.Module):
         drop_path: float = 0.0,
         rpe_mode: RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS,
         shift: bool = False,
-        act_layer: Type[nn.Module] = nn.GELU,
+        act_layer: nn.Module = nn.GELU(),
         norm_layer: Optional[Type[nn.Module]] = nn.LayerNorm,
     ) -> None:
         super().__init__()
@@ -582,7 +523,7 @@ class SwinTransformerBlock2D(nn.Module):
             shift=shift,
         )
         self.norm_proj = norm_layer(embed_dim) if norm_layer is not None else nn.Identity()
-        self.proj = FeedForward2D(embed_dim, int(embed_dim * mlp_ratio), embed_dim, act_layer, norm_layer)
+        self.proj = FeedForward(embed_dim, int(embed_dim * mlp_ratio), embed_dim, act_layer, norm_layer)
 
         self.input_size = input_size
         self.output_size = input_size
@@ -673,7 +614,7 @@ class SwinTransformerStage2D(nn.Module):
         drop_attn (float, optional): Attention dropout rate.
         drop_path (Optional[List[float]], optional): Stochastic depth rate.
         rpe_mode (RelativePositionalEmbeddingMode): Whether to use relative position encoding.
-        act_layer (Type[nn.Module], optional): Activation layer type.
+        act_layer (nn.Module): Activation layer type.
         norm_layer_pre_block (Optional[Type[nn.Module]], optional): Normalisation in patch.
         norm_layer_block (Optional[Type[nn.Module]], optional): Normalisation in the block.
         patch_mode (PatchMode): Patch embedding mode.
@@ -698,7 +639,7 @@ class SwinTransformerStage2D(nn.Module):
         drop: float = 0.0,
         drop_attn: float = 0.0,
         drop_path: Optional[List[float]] = None,
-        act_layer: Type[nn.Module] = nn.GELU,
+        act_layer: nn.Module = nn.GELU(),
         # Normalisation parameters
         norm_layer_pre_block: Optional[Type[nn.Module]] = nn.LayerNorm,
         norm_layer_block: Optional[Type[nn.Module]] = nn.LayerNorm,
@@ -817,7 +758,7 @@ class SwinTransformerConfig2D:
     drop: float = 0.0
     drop_attn: float = 0.0
     drop_path: float = 0.1
-    act_layer: Type[nn.Module] = nn.GELU
+    act_layer: nn.Module = nn.GELU()
     # Mode parameters
     patch_mode: Optional[List[PatchMode] | List[str]] = None
     rpe_mode: str | RelativePositionalEmeddingMode = RelativePositionalEmeddingMode.BIAS
@@ -843,7 +784,7 @@ class SwinTransformerConfig2D:
         if self.patch_mode is None:
             self.patch_mode = [PatchMode.CONVOLUTION] + [PatchMode.CONCATENATE] * (len(self.num_blocks) - 1)
         else:
-            self.patch_mode = [PatchMode(str.lower(pm)) for pm in self.patch_mode if isinstance(pm, str)]        
+            self.patch_mode = [PatchMode(str.lower(pm)) if isinstance(pm, str) else pm for pm in self.patch_mode]
             assert len(self.patch_mode) == len(self.num_blocks), "Length of patch_mode must be equal to num_blocks."
             assert all(pm in PatchMode for pm in self.patch_mode), "Patch mode must be one of PatchMode."
 
@@ -894,8 +835,8 @@ class SwinTransformer2D(nn.Module):
                 act_layer=config.act_layer,
                 norm_layer_pre_block=norm_layer_pre_block,
                 norm_layer_block=nn.LayerNorm,
-                patch_mode=config.patch_mode[i], # type: ignore
-                rpe_mode=config.rpe_mode, # type: ignore
+                patch_mode=config.patch_mode[i],  # type: ignore
+                rpe_mode=config.rpe_mode,  # type: ignore
             )
             input_size = (input_size[0] // pws[0], input_size[1] // pws[1])
             out_channels = stage.out_channels

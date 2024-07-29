@@ -1,7 +1,8 @@
 import enum
+from typing import Optional, Type
+
 import torch
 import torch.nn as nn
-from typing import Optional, Type
 
 
 class PatchMode(enum.Enum):

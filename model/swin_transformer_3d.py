@@ -1,14 +1,14 @@
 import itertools
+from dataclasses import dataclass
 from typing import List, Optional, Tuple, Type
 
 import einops
 import einops.layers.torch as elt
 import torch
 import torch.nn as nn
-from dataclasses import dataclass
 from timm.layers import DropPath
 
-from .swin_shared import PatchMode, RelativePositionalEmeddingMode, FeedForward
+from .swin_shared import FeedForward, PatchMode, RelativePositionalEmeddingMode
 
 
 class PatchEmbedding3D(nn.Module):

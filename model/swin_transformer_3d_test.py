@@ -192,5 +192,6 @@ def test_swin_transformer_3d(device, config):
         assert not torch.isinf(xo).any(), f"Stage {i}: Output contains infinite values"
         dims *= 4 if i < len(config.num_blocks) - 1 else 1  # Quadruple the dimensions except for the last stage
 
+
 if __name__ == "__main__":
     pytest.main([__file__])

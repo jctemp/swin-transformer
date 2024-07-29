@@ -123,10 +123,10 @@ def test_attention_2d(device, input_size, window_size, embed_dim, num_heads, rpe
     assert x_out.device.type == device.type, f"Expected device {device}, got {x_out.device}"
     assert not torch.isnan(x_out).any(), "Output contains NaN values"
     assert not torch.isinf(x_out).any(), "Output contains infinite values"
-    
+
     # Check if the attention mask is applied correctly
     mask_check = torch.equal(
-        a[:9, 0].masked_fill_(a[:9, 0] != 0, 1)[:m.shape[0]], m.masked_fill_(m == 0, 1).masked_fill_(m == -1e9, 0)
+        a[:9, 0].masked_fill_(a[:9, 0] != 0, 1)[: m.shape[0]], m.masked_fill_(m == 0, 1).masked_fill_(m == -1e9, 0)
     )
     assert mask_check, "Attention mask is not applied correctly"
 
@@ -191,6 +191,7 @@ def test_swin_transformer_2d(device, config):
         assert not torch.isnan(xo).any(), f"Stage {i}: Output contains NaN values"
         assert not torch.isinf(xo).any(), f"Stage {i}: Output contains infinite values"
         dims *= 2 if i < len(config.num_blocks) - 1 else 1  # Double the dimensions except for the last stage
+
 
 if __name__ == "__main__":
     pytest.main([__file__])
